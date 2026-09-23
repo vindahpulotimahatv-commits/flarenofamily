@@ -114,7 +114,8 @@ body {
   font-size: 13px;
   background: white;
 }
-.kelas-input {
+.kelas-input,
+.allowance-input {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid #d1d5db;
@@ -174,6 +175,33 @@ body {
   background: transparent;
   cursor: pointer;
   font-size: 15px;
+}
+
+/* ---------- LAPORAN HARIAN (admin) ---------- */
+.report-list { max-height: 340px; overflow-y: auto; }
+.report-day { border-bottom: 1px dashed #eee; }
+.report-day:last-child { border-bottom: none; }
+.report-day-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+.report-day-detail { padding: 0 4px 10px; }
+.report-task-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12.5px;
 }
 
 /* ---------- APPROVAL QUEUE (admin) ---------- */
@@ -533,6 +561,21 @@ body {
 .history-list { background: white; border-radius: 16px; padding: 6px 14px; box-shadow: 0 4px 14px rgba(0,0,0,0.06); }
 .history-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #eee; font-size: 12.5px; }
 .history-row:last-child { border-bottom: none; }
+.history-row-wrap:last-child .history-row { border-bottom: none; }
+.history-row-btn { width: 100%; background: none; border: none; cursor: pointer; font-family: inherit; text-align: left; }
+.history-detail { padding: 0 0 8px; }
+
+.saldo-eval-box, .saldo-history-list {
+  background: white;
+  border-radius: 16px;
+  padding: 12px 14px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+  margin-bottom: 8px;
+}
+.saldo-eval-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #eee; font-size: 12.5px; }
+.saldo-eval-row:last-child { border-bottom: none; }
+.saldo-eval-total { display: flex; justify-content: space-between; padding: 8px 0 0; font-size: 13px; font-weight: 700; }
+.saldo-history-list .history-row { font-size: 12px; }
 
 /* ---------- BADGES ---------- */
 .badge-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }

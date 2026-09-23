@@ -123,40 +123,64 @@ Cara termudah pakai **VS Code + extension "Live Server"**:
 
 ---
 
-## BAGIAN D — SETUP ANDROID APP (Khanaya & Asensio)
+## BAGIAN D — SETUP ANDROID APP (Khanaya & Asensio) — PHASE 3
 
-### 1. Buat Project di Android Studio
+App Android ini KHUSUS untuk sisi **anak** (login, dashboard game,
+misi, upload bukti foto, reward, badge, reminder notifikasi, layar
+kunci HP). Admin **tetap pakai website** (`admin.html`) seperti
+sebelumnya — tidak berubah.
+
+### 1. Buat Project Kosong di Android Studio
 1. Buka Android Studio > **New Project > Empty Views Activity**
 2. Name: `MisiHarian`
-3. Package name: `com.keluarga.misiharian`
+3. Package name: **`com.keluarga.misiharian`** (harus persis ini, karena semua file Kotlin sudah pakai package ini)
 4. Language: **Kotlin**
 5. Minimum SDK: **API 24**
+6. Klik **Finish**, tunggu sampai Gradle sync pertama selesai
 
 ### 2. Hubungkan ke Firebase
 1. Di Android Studio: **Tools > Firebase**
 2. Pilih **Authentication > Email and password** > klik **Connect to Firebase** (pilih project `misi-harian-keluarga` yang sama seperti di Bagian A) > **Add Authentication to your app**
-3. Ulangi untuk **Firestore** dan **Storage** lewat menu Firebase Assistant yang sama
-4. Ini otomatis mendownload file `google-services.json` ke folder `app/`
-5. Buka `app/build.gradle.kts`, tambahkan isi dari file `android/app-build.gradle.kts` di project ini (dependency Firebase, viewBinding, dst)
-6. Klik **Sync Now**
+3. Ulangi untuk **Firestore** lewat menu Firebase Assistant yang sama (Storage TIDAK perlu, sudah tidak dipakai — lihat Bagian A)
+4. Ini otomatis mendownload file `google-services.json` ke folder `app/` project Android Studio kamu
+5. Buka file **project-level** `build.gradle.kts` (yang di root project, BUKAN yang di dalam folder `app/`), tambahkan isi dari file `android/project-build.gradle.kts` di project ini
+6. Buka file `app/build.gradle.kts`, GABUNGKAN isinya dengan isi file `android/app-build.gradle.kts` di project ini (jangan hapus yang sudah ada dari Android Studio, cukup tambahkan plugin `google-services` dan semua baris `dependencies{}`)
+7. Klik **Sync Now**
 
-### 3. Tambahkan File Kotlin
-Salin isi setiap file ini ke lokasi yang tertulis di baris paling atas masing-masing file:
-- `android/MainActivity.kt` → `app/src/main/java/com/keluarga/misiharian/ui/MainActivity.kt`
-- `android/LoginActivity.kt` → `app/src/main/java/com/keluarga/misiharian/ui/LoginActivity.kt`
-- `android/ChildDashboardActivity.kt` → `app/src/main/java/com/keluarga/misiharian/ui/ChildDashboardActivity.kt`
-- `android/FirestoreRepository.kt` → `app/src/main/java/com/keluarga/misiharian/data/FirestoreRepository.kt`
+### 3. Salin Semua File Kotlin & Resource
+Salin folder-folder ini APA ADANYA (timpa yang sudah ada dari Android Studio kalau nama filenya sama):
 
-Lalu buat layout XML sederhana untuk `activity_login.xml` (EditText email, EditText password, Button) dan `activity_child_dashboard.xml` (beberapa TextView) — bagian ini kita buat lengkap dengan tampilan game di **Phase 3**. Untuk sekarang cukup layout sederhana supaya bisa dites.
+- `android/app/src/main/java/com/keluarga/misiharian/` → ke folder yang sama persis di project Android Studio kamu (isinya: `MainActivity.kt`, `ui/LoginActivity.kt`, `ui/ChildDashboardActivity.kt`, `ui/MissionAdapter.kt`, `ui/RewardAdapter.kt`, `ui/BadgeAdapter.kt`, `ui/LockActivity.kt`, `data/Models.kt`, `data/FirestoreRepository.kt`, `data/ImgbbUploader.kt`, `reminder/NotificationHelper.kt`, `reminder/ReminderReceiver.kt`, `reminder/ReminderScheduler.kt`)
+- `android/app/src/main/res/layout/` → semua file `activity_*.xml`, `item_*.xml`, `dialog_*.xml`
+- `android/app/src/main/res/menu/bottom_nav_menu.xml`
+- `android/app/src/main/res/values/strings.xml`, `colors.xml`, `themes.xml` (gabungkan/timpa yang bawaan)
+- `android/app/src/main/res/xml/file_paths.xml`
+- `android/app/src/main/AndroidManifest.xml` (GABUNGKAN dengan yang sudah ada — jangan hilangkan tag `<application>` bawaan, cukup tambahkan permission, activity, receiver, provider yang belum ada)
 
-Tambahkan juga di `AndroidManifest.xml`, daftarkan `LoginActivity` dan `ChildDashboardActivity` sebagai `<activity>`, dan jadikan `MainActivity` sebagai launcher activity.
+### 4. Isi API Key ImgBB di Android
+Buka `app/src/main/java/com/keluarga/misiharian/data/ImgbbUploader.kt`, cek
+baris `IMGBB_API_KEY` — kalau kamu ganti key ImgBB di kemudian hari, ganti
+juga di sini supaya sama dengan yang di website.
 
-### 4. Testing
-1. Jalankan app di emulator atau HP Android
-2. Harus terbuka `LoginActivity`
+### 5. Testing
+1. Jalankan app di emulator atau HP Android asli (disarankan HP asli untuk tes kamera)
+2. Harus terbuka **LoginActivity**
 3. Login pakai `khanaya@keluarga.com`
-4. Harus pindah ke `ChildDashboardActivity` (isi data XP/streak masih 0, itu normal)
-5. Tutup app, buka lagi → harus langsung masuk dashboard tanpa login ulang (karena Firebase Auth menyimpan sesi)
+4. Harus pindah ke **ChildDashboardActivity**: header level/XP/streak/koin, kartu "Misi Sekarang" dengan countdown, 4 tab di bawah (Misi/Reward/Badge/Profil)
+5. Tap salah satu misi → bottom sheet detail terbuka → coba **Kamera** & **Galeri** → preview muncul → **Kirim Bukti** → cek foto muncul di admin dashboard (web) untuk disetujui
+6. Setelah admin approve dari web → buka lagi app anak → XP/koin/level ikut bertambah otomatis (karena data live dari Firestore)
+7. Coba ubah **Status HP** jadi "terkunci" dari admin web → buka app anak → harus otomatis pindah ke layar kunci merah
+8. Tunggu sampai 15 menit sebelum jam misi berikutnya (atau set jam tugas 15-16 menit dari sekarang di admin) → **tutup total app-nya** → notifikasi pengingat harus tetap muncul (ini yang beda dari versi web, yang cuma jalan kalau tab browser terbuka)
+
+### Catatan jujur soal "kunci HP"
+Layar kunci di app ini cuma mengunci **app Misi Harian itu sendiri**
+(anak tidak bisa lihat dashboard misi selama status "terkunci"/"habis").
+Ini **belum** mengunci HP secara keseluruhan (misal masih bisa buka
+app lain) — mengunci HP secara sistem butuh app didaftarkan sebagai
+**Device Owner** lewat proses enroll khusus (biasanya saat HP baru
+di-reset pakai QR code), yang jauh lebih rumit dan berisiko kalau
+salah setting. Kalau nanti butuh itu, kabari saja, kita bikin
+sebagai pengembangan terpisah.
 
 ---
 
@@ -300,11 +324,26 @@ terbentuk saat admin menambah tugas pertama lewat dashboard.
 ✅ Kontrol status HP manual oleh admin (aktif/terbatas/terkunci/habis) —
    ditampilkan apa adanya ke anak, TIDAK benar-benar mengunci HP (itu tugas Android App)
 
-**Belum dibuat (menyusul di Phase 3 — Android App):**
-- Notifikasi push sungguhan walau app ditutup (Firebase Cloud Messaging)
-- Countdown & penguncian HP otomatis di level sistem Android (Device Admin / Screen Time API)
-- Halaman admin untuk mengatur katalog reward (saat ini masih hardcode di kode)
-- Avatar foto asli (saat ini masih pakai emoji)
+---
 
-Kalau semua langkah di atas sudah berhasil, ketik **"LANJUT PHASE 3"**
-untuk mulai membangun Android App-nya.
+## Status Phase 3 (Android App — folder `android/`)
+
+✅ Login email/password (Firebase Auth, sesi tersimpan otomatis)
+✅ Dashboard game-style: header level/XP/streak/koin, kartu "Misi Sekarang"
+   + countdown real-time, 4 tab (Misi/Reward/Badge/Profil) via bottom navigation
+✅ Upload bukti foto (kamera pakai FileProvider, atau galeri) ke ImgBB,
+   sinkron dengan Firestore yang sama dengan website
+✅ Reward shop (tukar koin) + Badge otomatis (logika sama persis dengan web)
+✅ Notifikasi pengingat 15 menit sebelum jam misi, **tetap muncul walau app
+   ditutup** (pakai `AlarmManager`, bukan cuma saat tab browser terbuka)
+✅ Layar kunci in-app saat status HP "terkunci"/"habis" (lihat catatan jujur
+   soal batasannya di atas)
+
+**Belum dibuat (kalau mau dikembangkan lagi nanti):**
+- Kunci HP di level SISTEM Android (Device Owner/MDM) — saat ini baru
+  mengunci app-nya sendiri, bukan seluruh HP
+- Halaman admin untuk mengatur katalog reward (masih hardcode di kode,
+  sama seperti web)
+- Avatar foto asli (masih pakai emoji, sama seperti web)
+- Icon app custom (masih pakai icon default Android Studio — tinggal ganti
+  `mipmap/ic_launcher` kalau mau)

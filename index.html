@@ -4,7 +4,54 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Misi Harian Keluarga - Login</title>
-<link rel="stylesheet" href="css/style.css">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+    background: #f4f6fb;
+    color: #1f2937;
+  }
+  .login-box {
+    max-width: 380px;
+    margin: 60px auto;
+    background: white;
+    padding: 32px 24px;
+    border-radius: 16px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    text-align: center;
+  }
+  .login-box h1 { margin-bottom: 4px; font-size: 22px; }
+  .subtitle { color: #6b7280; margin-bottom: 24px; font-size: 14px; }
+  .login-box label {
+    display: block;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 600;
+    margin: 12px 0 4px;
+  }
+  .login-box input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  .login-box button {
+    width: 100%;
+    margin-top: 20px;
+    padding: 12px;
+    background: #4f46e5;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .login-box button:hover { background: #4338ca; }
+  .error { color: #dc2626; font-size: 13px; margin-top: 12px; }
+</style>
 </head>
 <body>
 
@@ -26,7 +73,22 @@
 </div>
 
 <script type="module">
-  import { login } from "./js/auth.js";
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDjgbtlsgrlkkOoJMw_A6uOLp7gIIHOnbQ",
+    authDomain: "misi-harian-keluarga.firebaseapp.com",
+    projectId: "misi-harian-keluarga",
+    storageBucket: "misi-harian-keluarga.firebasestorage.app",
+    messagingSenderId: "911514243633",
+    appId: "1:911514243633:web:4f228b15b5d0c92ba5bb10"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
 
   const form = document.getElementById("loginForm");
   const errorMsg = document.getElementById("errorMsg");
@@ -39,7 +101,20 @@
     const password = document.getElementById("password").value;
 
     try {
-      await login(email, password);
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const snap = await getDoc(doc(db, "users", cred.user.uid));
+
+      if (!snap.exists()) {
+        errorMsg.textContent = "Akun ini belum terdaftar di data users Firestore.";
+        return;
+      }
+
+      const userData = snap.data();
+      if (userData.role === "admin") {
+        errorMsg.textContent = "Login berhasil sebagai ADMIN. (Halaman admin.html dibuat setelah ini.)";
+      } else {
+        errorMsg.textContent = "Login berhasil sebagai " + userData.role.toUpperCase() + ". (Halaman child.html dibuat setelah ini.)";
+      }
     } catch (err) {
       errorMsg.textContent = "Login gagal: " + err.message;
     }

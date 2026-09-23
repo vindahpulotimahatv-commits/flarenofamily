@@ -80,9 +80,14 @@ export async function loadChildren() {
           <div class="task-form-row">
             <input type="time" name="time" required>
             <input type="number" name="xpReward" placeholder="XP" min="0" value="10" required>
+          </div>
+          <div class="task-form-row">
+            <label class="hp-label" style="margin:0;align-self:center;">Mulai tanggal (opsional)</label>
+            <input type="date" name="startDate" min="${todayStr()}">
             <button type="submit">+ Tambah</button>
           </div>
         </form>
+        <p class="muted" style="font-size:11px;margin-top:2px;">Kosongkan "Mulai tanggal" kalau mau misi langsung berlaku hari ini/besok secara otomatis. Isi kalau mau tentukan sendiri kapan misi ini mulai berlaku (mis. mulai Senin depan).</p>
         <div class="task-list" data-child="${childId}">
           <p class="muted">Memuat tugas...</p>
         </div>
@@ -123,8 +128,9 @@ export async function loadChildren() {
       const time = form.time.value;
       const xpReward = form.xpReward.value;
       const category = form.category.value;
+      const startDate = form.startDate.value;
       if (!title || !time) return;
-      await createTask(childId, { title, time, xpReward, category });
+      await createTask(childId, { title, time, xpReward, category, startDate });
       form.reset();
       form.xpReward.value = 10;
     });
@@ -160,9 +166,11 @@ function renderTaskList(listEl, tasks) {
   tasks.forEach((t) => {
     const row = document.createElement("div");
     row.className = "task-row" + (t.active ? "" : " task-row-inactive");
+    const startsFuture = t.firstEligibleDate && t.firstEligibleDate > todayStr();
     row.innerHTML = `
       <span class="task-time">${t.time}</span>
       <span class="task-title">${CATEGORY_META[t.category]?.icon || "🎯"} ${t.title}</span>
+      ${startsFuture ? `<span class="muted" style="font-size:11px;">📅 mulai ${formatTanggal(t.firstEligibleDate)}</span>` : ""}
       <span class="task-xp">+${t.xpReward} XP</span>
       <button class="task-toggle" title="Aktif/nonaktifkan">${t.active ? "⏸️" : "▶️"}</button>
       <button class="task-delete" title="Hapus">🗑️</button>

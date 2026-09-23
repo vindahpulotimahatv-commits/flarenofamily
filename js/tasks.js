@@ -49,12 +49,18 @@ export function logIdFor(taskId, date) {
 
 // ---------- TASKS ----------
 
-export async function createTask(childId, { title, description, time, xpReward, category }) {
+export async function createTask(childId, { title, description, time, xpReward, category, startDate }) {
   // Misi ini otomatis berulang SETIAP HARI (tidak perlu dibuat ulang tiap
   // hari) — supaya tidak langsung muncul "TERLAMBAT" kalau ditambahkan
   // setelah jam targetnya lewat hari ini, misi baru mulai "berlaku" besok
   // dalam kasus itu (lihat computeFirstEligibleDate di app.js).
-  const firstEligibleDate = computeFirstEligibleDate(time);
+  //
+  // Kalau admin (orang tua) mengisi sendiri tanggal mulainya lewat form,
+  // pakai itu apa adanya (mis. mau mulai minggu depan). Kalau dikosongkan,
+  // tetap pakai perhitungan otomatis seperti sebelumnya.
+  const firstEligibleDate = startDate && startDate.trim()
+    ? startDate.trim()
+    : computeFirstEligibleDate(time);
   return addDoc(tasksCol, {
     childId,
     title: title.trim(),

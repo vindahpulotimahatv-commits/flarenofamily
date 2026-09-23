@@ -1,0 +1,15 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Phase 1: belum ada fitur upload foto, jadi semua akses ditolak
+    // dulu supaya bucket tidak terbuka bebas.
+    // Aturan lengkap untuk path:
+    // /children/{childId}/tasks/{taskId}/{tanggal}/{fileName}
+    // akan ditambahkan di Phase 2 saat fitur upload foto bukti dibuat.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -11,12 +11,12 @@ import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebas
 import { getStorage } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 
 const firebaseConfig = {
-  apiKey: "GANTI_DENGAN_API_KEY",
-  authDomain: "GANTI_DENGAN_AUTH_DOMAIN",
-  projectId: "GANTI_DENGAN_PROJECT_ID",
-  storageBucket: "GANTI_DENGAN_STORAGE_BUCKET",
-  messagingSenderId: "GANTI_DENGAN_SENDER_ID",
-  appId: "GANTI_DENGAN_APP_ID"
+  apiKey: "AIzaSyDjgbtlsgrlkkOoJMw_A6uOLp7gIIHOnbQ",
+  authDomain: "misi-harian-keluarga.firebaseapp.com",
+  projectId: "misi-harian-keluarga",
+  storageBucket: "misi-harian-keluarga.firebasestorage.app",
+  messagingSenderId: "911514243633",
+  appId: "1:911514243633:web:4f228b15b5d0c92ba5bb10"
 };
 
 const app = initializeApp(firebaseConfig);

@@ -248,7 +248,8 @@ function renderApprovalQueue(logs) {
     const item = document.createElement("div");
     item.className = "approval-item";
     item.innerHTML = `
-      <img src="${log.photoUrl}" alt="bukti tugas" class="approval-photo">
+      <img src="${log.photoUrl}" alt="bukti tugas" class="approval-photo" loading="lazy"
+           onerror="this.outerHTML='&lt;a href=&quot;${log.photoUrl}&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot; class=&quot;approval-photo-broken&quot;&gt;⚠️ Foto gagal dimuat<br><small>🔗 Tap untuk buka link foto langsung</small>&lt;/a&gt;'">
       <div class="approval-info">
         <p><b>${log.childId}</b> — tugas: ${log.taskTitle || log.taskId}</p>
         <p class="muted">Tanggal: ${log.date} &nbsp;•&nbsp; +${log.xpReward ?? 0} XP</p>

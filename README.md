@@ -160,10 +160,140 @@ Tambahkan juga di `AndroidManifest.xml`, daftarkan `LoginActivity` dan `ChildDas
 ✅ Child dashboard sederhana (web utk testing + kerangka Android)
 ✅ Firestore Security Rules dasar
 
-**Belum dibuat (menyusul di Phase 2):**
-- Sistem tugas & jadwal
-- Reminder 15 menit + notifikasi
-- Upload foto bukti + approval
-- Countdown & mode HP terbatas/terkunci
+---
 
-Kalau semua langkah di atas sudah berhasil dan bisa login + lihat dashboard, ketik **"LANJUT PHASE 2"** untuk lanjut ke sistem tugas & jadwal.
+## BAGIAN E — PHASE 2: TUGAS, REMINDER, UPLOAD BUKTI, HP STATUS
+
+### 1. Update Firestore & Storage Rules
+File `firestore.rules` dan `storage.rules` sudah ditambah aturan untuk
+collection baru `tasks` dan `logs`, plus izin upload foto.
+1. Firebase Console > **Firestore Database > Rules** > copy-paste ulang isi
+   `firestore.rules` yang baru > **Publish**
+2. Firebase Console > **Storage > Rules** > copy-paste ulang isi
+   `storage.rules` yang baru > **Publish**
+
+Tidak perlu bikin collection `tasks`/`logs` manual — akan otomatis
+terbentuk saat admin menambah tugas pertama lewat dashboard.
+
+### 2. Apa yang baru
+- **Admin Dashboard** (`admin.html`): tiap kartu anak sekarang punya
+  - Field **Kelas** (opsional, tampil di halaman Profil anak)
+  - Dropdown untuk mengganti **Status HP** (🟢 aktif / 🟡 terbatas / 🔴 terkunci / ⏳ habis)
+  - Form tambah tugas (nama, **kategori** 🌅🙏🏫📚🏠🌙📱, jam, reward XP) + daftar
+    tugas (bisa dinonaktifkan ⏸️ atau dihapus 🗑️)
+  - Bagian **Approval Bukti Foto** di bawah: lihat foto yang dikirim anak,
+    tinggal klik ✅ Setujui (otomatis nambah XP, level, koin, dan streak) atau
+    ❌ Tolak (anak bisa upload ulang)
+- **Child Dashboard** (`child.html`) — **dirombak total jadi tampilan GAME**:
+  - Header dengan avatar/emoji + sapaan santai, tombol ⚙️ ke profil
+  - **Kartu Level** besar (gradient ungu) dengan progress bar XP
+  - **Kartu Streak** 🔥 dan **Kartu Status HP** 📱 berdampingan
+  - **Misi Sekarang**: tugas terdekat yang belum selesai, dengan **countdown
+    real-time per detik** (bukan refresh halaman) dan badge status berubah
+    otomatis: ⏳ Mulai dalam → ⚠️ Sebentar lagi → 🔥 Waktunya! → ⚠️ Terlambat
+  - **Peta Petualangan Harian**: daftar tugas hari ini jadi jalur
+    ✅ selesai / 🔵 sekarang / 🔒 belum waktunya
+  - Tab **Misi**: semua misi hari ini sebagai mission card, tekan untuk buka
+    detail (modal) → deskripsi, jam, reward, tombol **Ambil Foto** /
+    **Pilih dari Galeri** dengan preview sebelum **Kirim Bukti**
+  - Tab **Reward** 🎁: katalog reward (Jajan/Extra Play/Nonton Film/Hadiah
+    Khusus) yang bisa ditukar pakai **koin** (koin bertambah tiap misi
+    disetujui, terpisah dari XP total supaya level tidak pernah turun) +
+    riwayat penukaran
+  - Tab **Badge** 🏅: badge otomatis (3/7 Hari Beruntun, Rajin Belajar, Jago
+    Beres-beres, Tepat Waktu, Mission Master) — abu-abu/terkunci kalau
+    belum tercapai
+  - Tab **Profil** 👤: ringkasan lengkap + tombol Keluar
+  - **Bottom navigation** 🏠🎯🎁🏆👤 khas aplikasi mobile
+  - Animasi ringan 🎉 "Misi Selesai! +XP" begitu admin menyetujui foto
+  - **Reminder**: banner + coba kirim notifikasi browser 15 menit sebelum
+    jam misi. Ini hanya jalan **selama halaman terbuka** — notifikasi push
+    sungguhan (walau app ditutup) baru bisa dibuat di Android App (Phase 3),
+    karena butuh Firebase Cloud Messaging.
+  - Semua istilah teknis (Firestore, collection, dst) **tidak** tampil ke
+    anak — bahasa yang dipakai: "Mulai Misi", "Kirim Bukti", "Misi Selesai!", dst.
+
+### 3. Asumsi yang saya ambil (penting dibaca)
+- **Koin vs XP**: XP itu total seumur hidup (dipakai untuk Level, tidak
+  pernah berkurang). Koin itu saldo yang bisa dibelanjakan di Reward — naik
+  bareng XP tiap misi disetujui, dan berkurang saat ditukar reward. Ini
+  supaya level anak tidak pernah "turun" gara-gara jajan reward.
+- **Katalog reward** masih di dalam kode (`js/tasks.js` → `REWARD_CATALOG`),
+  belum ada halaman admin untuk mengatur reward — kalau mau ubah nama/harga
+  reward, edit array itu langsung. UI admin untuk kelola reward bisa
+  dibuatkan di Phase 3 kalau perlu.
+- **Badge** dihitung otomatis dari data yang sudah ada (streak, kategori
+  tugas, ketepatan waktu), bukan collection Firestore terpisah.
+- **Kategori tugas** (`category`) field baru di collection `tasks` — tugas
+  lama (dibuat sebelum update ini) otomatis dianggap kategori "belajar" 📚
+  sampai diedit ulang lewat admin.
+
+### 4. Cara memasang & cara test tampilan game di HP
+1. Publish ulang `firestore.rules` & `storage.rules` seperti langkah 1 di atas
+   (ada perubahan baru: anak boleh update field `coin` sendiri, + collection `redemptions`)
+2. Upload/replace semua file di GitHub Pages seperti biasa (Bagian C)
+3. Di HP Android, buka link GitHub Pages-nya di **Chrome**
+4. Login pakai akun Khanaya/Asensio → harus langsung muncul dashboard game
+   (kartu Level ungu, kartu Streak & HP, Misi Sekarang, dst), **bukan** lagi
+   tulisan "Ini adalah versi web sementara..."
+5. Coba tap **bottom navigation** (🏠🎯🎁🏆👤) — pastikan tiap tab pindah tanpa reload
+6. Tap salah satu mission card → modal detail terbuka → coba **Ambil Foto**
+   (harus membuka kamera HP) dan **Pilih dari Galeri** → preview muncul →
+   **Kirim Bukti**
+
+### 5. Cara kerja Level, Koin & Streak
+- **Level** dihitung otomatis dari XP: tiap 100 XP = naik 1 level. Tidak
+  perlu diisi manual.
+- **Koin** 🪙 terpisah dari XP: dipakai untuk tukar reward, bisa naik-turun,
+  tidak memengaruhi level.
+- **Streak** naik +1 hanya kalau **semua tugas aktif** anak pada hari itu
+  sudah disetujui admin, dan hari sebelumnya juga lengkap (berurutan).
+  Kalau ada hari yang bolong, streak mulai dari 1 lagi di hari berikutnya
+  yang lengkap. (Catatan: karena hosting statis di GitHub Pages tidak
+  punya Cloud Functions, streak **tidak otomatis reset** kalau anak absen
+  total di suatu hari — ini akan disempurnakan lewat Cloud Functions kalau
+  nanti upgrade ke Firebase Blaze plan.)
+
+### 6. Checklist testing lengkap
+- [ ] Login admin → tambah 1-2 tugas untuk Khanaya (nama, kategori, jam, XP)
+- [ ] Login sebagai Khanaya → dashboard game muncul, tugas ada di tab Misi
+      & di Peta Petualangan
+- [ ] Ubah jam tugas ke waktu dekat (misal 5 menit dari sekarang) lewat admin →
+      refresh halaman anak → **Misi Sekarang** menampilkan countdown yang
+      berjalan tiap detik, banner reminder muncul
+- [ ] Tap mission card → modal terbuka → ambil/pilih foto → preview tampil →
+      Kirim Bukti → status berubah jadi "⏳ MENUNGGU ORANG TUA"
+- [ ] Login admin → foto muncul di **Approval Bukti Foto** → klik **Setujui**
+- [ ] Login lagi sebagai anak → animasi 🎉 "MISI SELESAI! +XP" muncul, XP &
+      koin bertambah, level naik kalau lewat kelipatan 100
+- [ ] Kalau semua misi hari itu approved → cek streak naik +1
+- [ ] Tab Reward → coba tukar reward pakai koin, cek koin berkurang & riwayat
+      muncul
+- [ ] Tab Badge → cek badge yang syaratnya sudah terpenuhi tidak lagi abu-abu
+- [ ] Tab Profil → data lengkap tampil, tombol Keluar berfungsi
+- [ ] Coba ganti Status HP dari admin → cek kartu HP di dashboard anak ikut berubah
+- [ ] Pastikan login admin tetap tampil dashboard profesional (tidak berubah)
+
+---
+
+## Status Phase 2
+
+✅ Sistem tugas & jadwal (CRUD tugas per anak + kategori, admin dashboard)
+✅ Dashboard anak bergaya GAME (Level card, Streak, Misi Sekarang, Peta
+   Petualangan, tab Misi/Reward/Badge/Profil, bottom navigation)
+✅ Countdown real-time per detik + reminder 15 menit (banner + notifikasi browser)
+✅ Upload foto bukti (kamera/galeri + preview) + approval (XP/koin otomatis bertambah)
+✅ Level otomatis dari XP, koin terpisah untuk reward, streak harian
+✅ Reward shop + riwayat penukaran
+✅ Badge otomatis (6 jenis, dihitung dari data yang ada)
+✅ Kontrol status HP manual oleh admin (aktif/terbatas/terkunci/habis) —
+   ditampilkan apa adanya ke anak, TIDAK benar-benar mengunci HP (itu tugas Android App)
+
+**Belum dibuat (menyusul di Phase 3 — Android App):**
+- Notifikasi push sungguhan walau app ditutup (Firebase Cloud Messaging)
+- Countdown & penguncian HP otomatis di level sistem Android (Device Admin / Screen Time API)
+- Halaman admin untuk mengatur katalog reward (saat ini masih hardcode di kode)
+- Avatar foto asli (saat ini masih pakai emoji)
+
+Kalau semua langkah di atas sudah berhasil, ketik **"LANJUT PHASE 3"**
+untuk mulai membangun Android App-nya.

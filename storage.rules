@@ -3,11 +3,36 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // Phase 1: belum ada fitur upload foto, jadi semua akses ditolak
-    // dulu supaya bucket tidak terbuka bebas.
-    // Aturan lengkap untuk path:
-    // /children/{childId}/tasks/{taskId}/{tanggal}/{fileName}
-    // akan ditambahkan di Phase 2 saat fitur upload foto bukti dibuat.
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Ambil data role/childId user yang sedang login, dari Firestore
+    // (Storage Rules bisa membaca Firestore lewat firestore.get()).
+    function userData() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userData().role == "admin";
+    }
+
+    function isOwnerChild(childId) {
+      return isSignedIn() && userData().childId == childId;
+    }
+
+    // Foto bukti tugas: /children/{childId}/tasks/{taskId}/{tanggal}/{namaFile}
+    // - Admin: boleh baca semua.
+    // - Anak: boleh baca & upload foto miliknya sendiri saja.
+    // - File wajib berupa gambar, maksimal 5MB.
+    match /children/{childId}/tasks/{taskId}/{date}/{fileName} {
+      allow read: if isAdmin() || isOwnerChild(childId);
+      allow write: if (isAdmin() || isOwnerChild(childId))
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // Path lain masih ditutup dulu, menyusul di Phase 3-4 kalau perlu.
     match /{allPaths=**} {
       allow read, write: if false;
     }

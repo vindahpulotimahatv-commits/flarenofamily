@@ -3,28 +3,128 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dashboard Anak</title>
+<title>Misi Harian - Dashboard</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="game-body">
 
-<header class="topbar">
-  <h2 id="greeting">👋 Hai!</h2>
-  <button id="logoutBtn" class="btn-secondary">Keluar</button>
-</header>
+<div class="game-app">
 
-<main class="admin-container">
-  <p>Ini adalah versi web sementara untuk testing login.</p>
-  <p>Dashboard lengkap dengan misi, XP, level, dan streak akan dibuat di <b>Android App</b> pada Phase 2.</p>
-</main>
+  <!-- HEADER -->
+  <header class="game-header">
+    <div class="game-header-left">
+      <div class="game-avatar" id="profileOpenBtn">
+        <span id="greetEmoji">🧑‍🚀</span>
+      </div>
+      <div>
+        <div class="game-greet">👋 Hai, <span id="greetName">Anak</span>!</div>
+        <div class="game-greet-sub">Siap menaklukkan misi hari ini?</div>
+      </div>
+    </div>
+    <button class="game-settings-btn" id="profileOpenBtn2">⚙️</button>
+  </header>
+
+  <p id="reminderBanner" class="reminder-banner-game"></p>
+
+  <!-- TAB: HOME -->
+  <main class="tab-page tab-active" id="tab-home">
+    <div id="levelCard" class="level-card"></div>
+
+    <div class="two-col">
+      <div id="streakCard" class="streak-card"></div>
+      <div id="hpCard" class="hp-card"></div>
+    </div>
+
+    <div id="missionSummary" class="mission-summary"></div>
+
+    <div id="missionNow" class="mission-now"></div>
+
+    <h3 class="section-title-game">🗺️ PETUALANGAN HARI INI</h3>
+    <div id="adventureMap" class="adventure-map"></div>
+  </main>
+
+  <!-- TAB: MISI -->
+  <main class="tab-page" id="tab-misi">
+    <h3 class="section-title-game">🎯 SEMUA MISI HARI INI</h3>
+    <div id="missionList" class="mission-list"></div>
+  </main>
+
+  <!-- TAB: REWARD -->
+  <main class="tab-page" id="tab-reward">
+    <h3 class="section-title-game">🎁 TUKAR REWARD</h3>
+    <div id="rewardGrid" class="reward-grid"></div>
+    <h3 class="section-title-game">📜 Riwayat Penukaran</h3>
+    <div id="historyList" class="history-list"></div>
+  </main>
+
+  <!-- TAB: BADGE -->
+  <main class="tab-page" id="tab-badge">
+    <h3 class="section-title-game">🏅 BADGE SAYA</h3>
+    <div id="badgeGrid" class="badge-grid"></div>
+  </main>
+
+  <!-- TAB: PROFIL -->
+  <main class="tab-page" id="tab-profil">
+    <div id="profileBox" class="profile-box"></div>
+    <button id="logoutBtn" class="logout-btn-game">🚪 Keluar</button>
+  </main>
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottom-nav">
+    <button class="nav-btn nav-active" data-tab="home"><span>🏠</span><small>HOME</small></button>
+    <button class="nav-btn" data-tab="misi"><span>🎯</span><small>MISI</small></button>
+    <button class="nav-btn" data-tab="reward"><span>🎁</span><small>REWARD</small></button>
+    <button class="nav-btn" data-tab="badge"><span>🏆</span><small>BADGE</small></button>
+    <button class="nav-btn" data-tab="profil"><span>👤</span><small>PROFIL</small></button>
+  </nav>
+</div>
+
+<!-- MODAL DETAIL MISI -->
+<div id="modalOverlay" class="modal-overlay">
+  <div class="modal-box">
+    <button id="modalClose" class="modal-close">✕</button>
+    <div class="modal-icon" id="modalIcon">🎯</div>
+    <div class="modal-title" id="modalTitle">Misi</div>
+    <p class="modal-desc" id="modalDesc"></p>
+    <div class="modal-meta">
+      <span id="modalTime">--:--</span>
+      <span id="modalXp">⭐ +0 XP</span>
+    </div>
+    <div id="modalStatusPill" class="status-pill2"></div>
+    <p id="modalReject" class="modal-reject"></p>
+
+    <div id="modalUploadArea" class="modal-upload-area">
+      <p class="modal-upload-label">📷 BUKTI FOTO</p>
+      <div class="modal-upload-btns">
+        <label class="upload-btn-game">
+          📷 Ambil Foto
+          <input type="file" accept="image/*" capture="environment" id="modalCameraInput">
+        </label>
+        <label class="upload-btn-game upload-btn-secondary">
+          🖼️ Pilih dari Galeri
+          <input type="file" accept="image/*" id="modalGalleryInput">
+        </label>
+      </div>
+      <img id="modalPreview" class="modal-preview" style="display:none;">
+      <button id="modalSendBtn" class="modal-send-btn" style="display:none;">KIRIM BUKTI</button>
+    </div>
+  </div>
+</div>
+
+<!-- OVERLAY ANIMASI SELESAI -->
+<div id="celebrateOverlay" class="celebrate-overlay"></div>
 
 <script type="module">
   import { guardPage, logout } from "./js/auth.js";
+  import { startChildDashboard } from "./js/child.js";
 
   document.getElementById("logoutBtn").addEventListener("click", logout);
+  document.getElementById("profileOpenBtn2").addEventListener("click", () => {
+    document.getElementById("profileOpenBtn").click();
+  });
 
   guardPage("child", (user, userData) => {
-    document.getElementById("greeting").textContent = "👋 Hai, " + (userData.name || "Anak") + "!";
+    startChildDashboard(userData.childId, userData);
   });
 </script>
 

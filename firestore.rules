@@ -26,15 +26,64 @@ service cloud.firestore {
 
     // ---------- children ----------
     // Admin: baca & tulis semua data anak.
-    // Anak: hanya boleh membaca datanya sendiri, tidak boleh mengubah apa pun
-    // (XP, saldo, status HP hanya diubah oleh admin / Phase 2 nanti oleh Cloud Function).
+    // Anak: hanya boleh membaca datanya sendiri. Anak JUGA boleh meng-update
+    // field "coin" miliknya sendiri (khusus untuk tukar reward), dan HANYA
+    // boleh mengurangi nilainya, tidak boleh mengubah field lain (xp, saldo,
+    // hpStatus, dst tetap hanya bisa diubah admin).
     match /children/{childId} {
       allow read: if isAdmin() || isOwnerChild(childId);
+      allow update: if isAdmin() || (
+        isOwnerChild(childId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["coin"]) &&
+        request.resource.data.coin < resource.data.coin &&
+        request.resource.data.coin >= 0
+      );
+      allow create, delete: if isAdmin();
+    }
+
+    // ---------- tasks (Phase 2) ----------
+    // Admin: baca & tulis semua tugas.
+    // Anak: hanya boleh membaca tugas miliknya sendiri, tidak boleh mengubah.
+    match /tasks/{taskId} {
+      allow read: if isAdmin() || isOwnerChild(resource.data.childId);
       allow write: if isAdmin();
     }
 
-    // Semua collection lain (tasks, points, rewards, dst) akan
-    // ditambahkan aturannya di Phase 2-4 saat fiturnya dibuat.
+    // ---------- logs (Phase 2) ----------
+    // Dokumen "bukti selesai tugas" harian. ID dokumen = {taskId}_{YYYY-MM-DD}.
+    // Anak boleh membuat/menimpa log miliknya sendiri, TAPI hanya untuk
+    // mengirim status "submitted" (tidak boleh set approved/rejected/xp sendiri,
+    // dan tidak boleh mengubah log yang statusnya sudah "approved").
+    // Admin boleh membaca & mengubah semua log (approve/reject).
+    match /logs/{logId} {
+      allow read: if isAdmin() || isOwnerChild(resource.data.childId);
+
+      allow create: if isAdmin() || (
+        isOwnerChild(request.resource.data.childId) &&
+        request.resource.data.status == "submitted"
+      );
+
+      allow update: if isAdmin() || (
+        isOwnerChild(resource.data.childId) &&
+        resource.data.status != "approved" &&
+        request.resource.data.status == "submitted" &&
+        request.resource.data.xpReward == resource.data.xpReward
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------- redemptions (Phase 2) ----------
+    // Riwayat penukaran reward. Anak boleh membaca & membuat catatan
+    // penukarannya sendiri; tidak boleh mengubah/menghapus riwayat.
+    match /redemptions/{redemptionId} {
+      allow read: if isAdmin() || isOwnerChild(resource.data.childId);
+      allow create: if isAdmin() || isOwnerChild(request.resource.data.childId);
+      allow update, delete: if isAdmin();
+    }
+
+    // Semua collection lain (rewards, points detail, dst) akan
+    // ditambahkan aturannya di Phase 3-4 saat fiturnya dibuat.
     // Default: tolak semua akses yang belum diatur di atas.
     match /{document=**} {
       allow read, write: if false;

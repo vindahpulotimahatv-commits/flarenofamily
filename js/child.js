@@ -624,7 +624,6 @@ function setupModal() {
   });
 
   document.getElementById("modalCameraInput")?.addEventListener("change", (e) => handlePhotoPick(e.target.files[0]));
-  document.getElementById("modalGalleryInput")?.addEventListener("change", (e) => handlePhotoPick(e.target.files[0]));
 
   document.getElementById("modalSendBtn")?.addEventListener("click", async () => {
     if (!pendingPhotoFile || !activeModalTask) return;

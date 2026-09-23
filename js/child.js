@@ -9,11 +9,13 @@ import { db } from "./firebase.js";
 import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   formatRupiah, computeLevel, xpProgressInLevel, hpStatusLabel, hpStatusMessage,
-  todayStr, categoryIcon, categoryLabel, formatCountdown, timeStrToDateToday
+  todayStr, categoryIcon, categoryLabel, formatCountdown, timeStrToDateToday,
+  formatTanggal, DEFAULT_ALLOWANCE
 } from "./app.js";
 import {
   listenTasksForChild, listenLogsForChild, submitTaskPhoto,
-  REWARD_CATALOG, redeemReward, listenRedemptions
+  REWARD_CATALOG, redeemReward, listenRedemptions, ensureSaldoUpToDate,
+  computeLiveEvaluation, listenSaldoHistory
 } from "./tasks.js";
 
 let childId = null;
@@ -29,6 +31,10 @@ export function startChildDashboard(childId_, userData) {
   childId = childId_;
 
   document.getElementById("greetName").textContent = userData.name || "Anak";
+
+  // Pastikan saldo uang jajan sudah up to date (tutup buku otomatis untuk
+  // hari-hari yang jamnya sudah lewat 22:00 dan belum dihitung).
+  ensureSaldoUpToDate(childId).catch((err) => console.error("Gagal update saldo:", err));
 
   const childRef = doc(db, "children", childId);
   onSnapshot(childRef, (snap) => {
@@ -56,6 +62,10 @@ export function startChildDashboard(childId_, userData) {
     renderHistory(items);
   });
 
+  listenSaldoHistory(childId, (items) => {
+    renderSaldoHistoryList(items);
+  });
+
   renderRewards();
   setupTabs();
   setupModal();
@@ -74,6 +84,7 @@ function renderAll() {
   renderMissionList();
   renderAdventureMap();
   renderMissionSummary();
+  renderSaldoEvaluation();
 }
 
 // ---------- HEADER ----------
@@ -423,6 +434,91 @@ function renderHistory(items) {
   `).join("");
 }
 
+// ---------- EVALUASI SALDO HARI INI (perkiraan, belum resmi sebelum jam 22:00) ----------
+const STATUS_LABEL_EVAL = {
+  "selesai": "✅ Selesai tepat waktu",
+  "telat": "⏰ Selesai tapi telat",
+  "belum-waktunya": "🔒 Belum waktunya",
+  "berisiko": "⚠️ Belum ada bukti"
+};
+
+function renderSaldoEvaluation() {
+  const el = document.getElementById("saldoEvalBox");
+  if (!el) return;
+  const today = todayStr();
+  const allowance = childData.dailyAllowance ?? DEFAULT_ALLOWANCE[childId] ?? 0;
+  const { items, totalDeduction, estimatedTomorrow } = computeLiveEvaluation(currentTasks, currentLogs, today, allowance);
+
+  const rows = items.map((it) => `
+    <div class="saldo-eval-row">
+      <span>${categoryIcon(it.task.category)} ${it.task.title}</span>
+      <span class="muted-light">${STATUS_LABEL_EVAL[it.status]}${it.deduction > 0 ? ` (-${formatRupiah(it.deduction)})` : ""}</span>
+    </div>
+  `).join("");
+
+  el.innerHTML = `
+    <p class="muted-light" style="margin-bottom:8px;">${formatTanggal(today)} — hasil hari ini dihitung final jam 22:00 dan jadi jajan BESOK.</p>
+    ${rows || `<p class="muted-light">Belum ada misi hari ini.</p>`}
+    <div class="saldo-eval-total">
+      <span>Perkiraan potongan hari ini</span>
+      <b>${formatRupiah(totalDeduction)}</b>
+    </div>
+    <div class="saldo-eval-total">
+      <span>Perkiraan jajan besok</span>
+      <b>${formatRupiah(estimatedTomorrow)}</b>
+    </div>
+  `;
+}
+
+function renderSaldoHistoryList(items) {
+  const el = document.getElementById("saldoHistoryList");
+  if (!el) return;
+  if (items.length === 0) {
+    el.innerHTML = `<p class="muted-light">Belum ada riwayat.</p>`;
+    return;
+  }
+  el.innerHTML = "";
+  items.slice(0, 14).forEach((h) => {
+    const row = document.createElement("div");
+    row.className = "history-row-wrap";
+
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "history-row history-row-btn";
+    head.innerHTML = `
+      <span>${formatTanggal(h.date)}</span>
+      <span class="muted-light">${h.totalDeduction > 0 ? `-${formatRupiah(h.totalDeduction)}` : "Lengkap ✅"} → jajan ${formatTanggal(h.nextDate)}: ${formatRupiah(h.saldoForNextDay)}</span>
+    `;
+
+    const detail = document.createElement("div");
+    detail.className = "history-detail";
+    detail.style.display = "none";
+    const items2 = h.taskReport || [];
+    detail.innerHTML = items2.length
+      ? items2.map((it) => `
+          <div class="saldo-eval-row">
+            <span>${it.title || "(misi dihapus)"}</span>
+            <span class="muted-light">${STATUS_LABEL_EVAL_HISTORY[it.status] || it.status}${it.deduction > 0 ? ` (-${formatRupiah(it.deduction)})` : ""}</span>
+          </div>
+        `).join("")
+      : `<p class="muted-light">Tidak ada rincian.</p>`;
+
+    head.addEventListener("click", () => {
+      detail.style.display = detail.style.display === "none" ? "block" : "none";
+    });
+
+    row.appendChild(head);
+    row.appendChild(detail);
+    el.appendChild(row);
+  });
+}
+
+const STATUS_LABEL_EVAL_HISTORY = {
+  done: "✅ Selesai tepat waktu",
+  late: "⏰ Selesai tapi telat",
+  missed: "❌ Tidak dikerjakan"
+};
+
 // ---------- COUNTDOWN TICK (tiap detik, tanpa reload/re-render berat) ----------
 function tickCountdowns() {
   document.querySelectorAll("[data-countdown]").forEach((el) => {
@@ -532,8 +628,11 @@ function setupModal() {
     btn.disabled = true;
     btn.textContent = "Mengirim...";
     try {
-      await submitTaskPhoto(activeModalTask, childId, pendingPhotoFile);
+      const result = await submitTaskPhoto(activeModalTask, childId, pendingPhotoFile);
       closeModal();
+      if (result.saldoDeduction > 0) {
+        alert(`Bukti terkirim, tapi telat ${result.lateMinutes} menit dari jadwal.\nIni akan mengurangi jajan BESOK sebesar ${formatRupiah(result.saldoDeduction)} (dihitung final jam 22:00).`);
+      }
     } catch (err) {
       alert("Gagal mengirim bukti: " + err.message);
       btn.disabled = false;

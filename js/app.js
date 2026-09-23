@@ -8,6 +8,52 @@ export function formatRupiah(angka) {
   return "Rp" + (angka ?? 0).toLocaleString("id-ID");
 }
 
+// ---------- SALDO / UANG JAJAN HARIAN ----------
+// Jatah default per anak kalau field "dailyAllowance" belum diisi di Firestore.
+export const DEFAULT_ALLOWANCE = { khanaya: 25000, asensio: 20000 };
+
+// Potongan karena TELAT kirim bukti: Rp500 tiap kelipatan 5 menit telat,
+// maksimal Rp1.500 (batas maksimal ini tercapai di menit ke-15 dan seterusnya).
+// Contoh: telat 1-5 menit = -Rp500, telat 6-10 menit = -Rp1.000, telat 11-15
+// menit (atau lebih) = -Rp1.500.
+export function lateDeduction(lateMinutes) {
+  if (!lateMinutes || lateMinutes <= 0) return 0;
+  const steps = Math.min(3, Math.ceil(lateMinutes / 5));
+  return steps * 500;
+}
+
+// Potongan karena SAMA SEKALI TIDAK dikerjakan (tidak ada bukti terkirim
+// sampai hari itu berakhir): flat Rp1.500 per tugas.
+export const MISSED_TASK_DEDUCTION = 1500;
+
+// Waktu "tutup buku" evaluasi harian: jam 22:00. Setelah jam ini, tugas hari
+// itu yang belum ada buktinya dianggap "tidak dikerjakan" dan dipakai untuk
+// menentukan jajan BESOK (bukan memotong saldo hari ini).
+export const SALDO_CLOSING_HOUR = 22;
+
+// Ubah "YYYY-MM-DD" jadi Date (jam 00:00 lokal).
+export function dateStrToDate(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+// "YYYY-MM-DD" + n hari -> "YYYY-MM-DD" baru.
+export function addDaysToDateStr(dateStr, days) {
+  const d = dateStrToDate(dateStr);
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// Format tanggal "YYYY-MM-DD" jadi lebih enak dibaca, mis. "23 Sep 2026".
+export function formatTanggal(dateStr) {
+  if (!dateStr) return "";
+  const d = dateStrToDate(dateStr);
+  return d.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+}
+
 // Tanggal hari ini dalam format "YYYY-MM-DD" (dipakai sebagai bagian ID log).
 export function todayStr() {
   const d = new Date();

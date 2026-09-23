@@ -5,12 +5,19 @@
 // -----------------------------------------------------------
 
 import { db } from "./firebase.js";
-import { collection, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { formatRupiah, computeLevel, hpStatusLabel, todayStr, CATEGORY_META } from "./app.js";
+import { collection, doc, getDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { formatRupiah, computeLevel, hpStatusLabel, todayStr, formatTanggal, CATEGORY_META, DEFAULT_ALLOWANCE } from "./app.js";
 import {
   createTask, updateTask, deleteTask, listenTasksForChild,
-  listenPendingLogs, approveLog, rejectLog, updateChildHpStatus, updateChildField
+  listenPendingLogs, approveLog, rejectLog, updateChildHpStatus, updateChildField,
+  ensureSaldoUpToDate, listenSaldoHistory
 } from "./tasks.js";
+
+const REPORT_STATUS_LABEL = {
+  done: "✅ Selesai tepat waktu",
+  late: "⏰ Selesai tapi telat",
+  missed: "❌ Tidak dikerjakan"
+};
 
 const HP_OPTIONS = ["aktif", "terbatas", "terkunci", "habis"];
 const unsubscribers = [];
@@ -30,10 +37,16 @@ export async function loadChildren() {
     return;
   }
 
-  snap.forEach((docSnap) => {
+  for (const docSnap of snap.docs) {
     const childId = docSnap.id;
-    const data = docSnap.data();
+
+    // Pastikan saldo sudah up to date (tutup buku otomatis untuk hari-hari
+    // yang jamnya sudah lewat 22:00 dan belum dihitung).
+    await ensureSaldoUpToDate(childId);
+    const freshSnap = await getDoc(doc(db, "children", childId));
+    const data = freshSnap.data() || {};
     const level = computeLevel(data.xp ?? 0);
+    const allowance = data.dailyAllowance ?? DEFAULT_ALLOWANCE[childId] ?? 0;
 
     const card = document.createElement("div");
     card.className = "child-card";
@@ -43,7 +56,11 @@ export async function loadChildren() {
       <input type="text" class="kelas-input" data-child="${childId}" value="${data.kelas || ""}" placeholder="mis. Kelas 3 SD">
       <p>⭐ XP: ${data.xp ?? 0} &nbsp;•&nbsp; 🏅 Level ${level} &nbsp;•&nbsp; 🪙 Coin: ${data.coin ?? 0}</p>
       <p>🔥 Streak: ${data.streak ?? 0} hari</p>
-      <p>💰 Saldo: ${formatRupiah(data.saldo)}</p>
+      <p>💰 Saldo hari ini: <b>${formatRupiah(data.saldo)}</b></p>
+
+      <label class="hp-label">Jatah Uang Jajan Harian (Rp)</label>
+      <input type="number" class="allowance-input" data-child="${childId}" value="${allowance}" min="0" step="500">
+      <p class="muted" style="font-size:12px;margin-top:2px;">Jam 22:00 tiap hari "tutup buku": telat kirim bukti -Rp500/5 menit (maks -Rp1.500 di menit ke-15), tidak dikerjakan sama sekali -Rp1.500 — hasilnya jadi jajan BESOK (selalu dihitung dari jatah penuh, bukan sisa hari sebelumnya).</p>
 
       <label class="hp-label">Status HP</label>
       <select class="hp-select" data-child="${childId}">
@@ -69,6 +86,15 @@ export async function loadChildren() {
           <p class="muted">Memuat tugas...</p>
         </div>
       </div>
+
+      <div class="task-section">
+        <div class="task-section-head">
+          <b>📊 Laporan Harian</b>
+        </div>
+        <div class="report-list" data-child="${childId}">
+          <p class="muted">Memuat laporan...</p>
+        </div>
+      </div>
     `;
     grid.appendChild(card);
 
@@ -80,6 +106,12 @@ export async function loadChildren() {
     // Kelas (opsional, hanya untuk ditampilkan di profil anak)
     card.querySelector(".kelas-input").addEventListener("blur", async (e) => {
       await updateChildField(childId, "kelas", e.target.value.trim());
+    });
+
+    // Jatah uang jajan harian (dipakai mulai hari berikutnya saat saldo direset)
+    card.querySelector(".allowance-input").addEventListener("blur", async (e) => {
+      const val = Number(e.target.value) || 0;
+      await updateChildField(childId, "dailyAllowance", val);
     });
 
     // Add task form
@@ -102,7 +134,14 @@ export async function loadChildren() {
       renderTaskList(listEl, tasks);
     });
     unsubscribers.push(unsub);
-  });
+
+    // Live laporan harian (histori tutup buku) untuk evaluasi orang tua
+    const reportEl = card.querySelector(".report-list");
+    const reportUnsub = listenSaldoHistory(childId, (history) => {
+      renderDailyReport(reportEl, history);
+    });
+    unsubscribers.push(reportUnsub);
+  }
 
   // Approval queue (satu untuk semua anak)
   const queueUnsub = listenPendingLogs((logs) => {
@@ -137,6 +176,55 @@ function renderTaskList(listEl, tasks) {
   });
 }
 
+// Laporan harian: tiap baris = 1 hari yang sudah "tutup buku" (saldoHistory),
+// bisa diklik untuk buka rincian tugas apa saja yang dikerjakan/tidak hari itu.
+function renderDailyReport(el, history) {
+  if (!el) return;
+  if (history.length === 0) {
+    el.innerHTML = `<p class="muted">Belum ada laporan. Laporan muncul setelah hari pertama "tutup buku" jam 22:00.</p>`;
+    return;
+  }
+
+  el.innerHTML = "";
+  history.slice(0, 30).forEach((h) => {
+    const row = document.createElement("div");
+    row.className = "report-day";
+
+    const summary = document.createElement("button");
+    summary.type = "button";
+    summary.className = "report-day-head";
+    summary.innerHTML = `
+      <span>${formatTanggal(h.date)}</span>
+      <span class="muted" style="font-size:12px;">
+        ✅${h.doneTasks ?? 0} &nbsp;⏰${h.lateTasks ?? 0} &nbsp;❌${h.missedTasks ?? 0}
+        &nbsp;•&nbsp; ${h.totalDeduction > 0 ? `-${formatRupiah(h.totalDeduction)}` : "Lengkap"}
+      </span>
+    `;
+
+    const detail = document.createElement("div");
+    detail.className = "report-day-detail";
+    detail.style.display = "none";
+    const items = h.taskReport || [];
+    detail.innerHTML = items.length
+      ? items.map((it) => `
+          <div class="report-task-row">
+            <span>${it.title || "(tugas dihapus)"}</span>
+            <span class="muted-light">${REPORT_STATUS_LABEL[it.status] || it.status}${it.deduction > 0 ? ` (-${formatRupiah(it.deduction)})` : ""}</span>
+          </div>
+        `).join("")
+      : `<p class="muted" style="font-size:12px;">Tidak ada rincian tugas untuk hari ini.</p>`;
+    detail.innerHTML += `<p class="muted" style="font-size:12px;margin-top:6px;">Jajan tanggal ${formatTanggal(h.nextDate)}: <b>${formatRupiah(h.saldoForNextDay)}</b></p>`;
+
+    summary.addEventListener("click", () => {
+      detail.style.display = detail.style.display === "none" ? "block" : "none";
+    });
+
+    row.appendChild(summary);
+    row.appendChild(detail);
+    el.appendChild(row);
+  });
+}
+
 function renderApprovalQueue(logs) {
   const box = document.getElementById("approvalQueue");
   if (!box) return;
@@ -155,6 +243,9 @@ function renderApprovalQueue(logs) {
       <div class="approval-info">
         <p><b>${log.childId}</b> — tugas: ${log.taskTitle || log.taskId}</p>
         <p class="muted">Tanggal: ${log.date} &nbsp;•&nbsp; +${log.xpReward ?? 0} XP</p>
+        ${log.saldoDeduction > 0
+          ? `<p class="muted">⏰ Telat ${log.lateMinutes} menit — jajan besok akan dipotong ${formatRupiah(log.saldoDeduction)} (dihitung final jam 22:00)</p>`
+          : ""}
         <div class="approval-actions">
           <button class="btn-approve">✅ Setujui</button>
           <button class="btn-reject">❌ Tolak</button>

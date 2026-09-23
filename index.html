@@ -73,22 +73,7 @@
 </div>
 
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-  const firebaseConfig = {
-    apiKey: "AIzaSyDjgbtlsgrlkkOoJMw_A6uOLp7gIIHOnbQ",
-    authDomain: "misi-harian-keluarga.firebaseapp.com",
-    projectId: "misi-harian-keluarga",
-    storageBucket: "misi-harian-keluarga.firebasestorage.app",
-    messagingSenderId: "911514243633",
-    appId: "1:911514243633:web:4f228b15b5d0c92ba5bb10"
-  };
-
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-  const db = getFirestore(app);
+  import { login } from "./js/auth.js";
 
   const form = document.getElementById("loginForm");
   const errorMsg = document.getElementById("errorMsg");
@@ -101,20 +86,7 @@
     const password = document.getElementById("password").value;
 
     try {
-      const cred = await signInWithEmailAndPassword(auth, email, password);
-      const snap = await getDoc(doc(db, "users", cred.user.uid));
-
-      if (!snap.exists()) {
-        errorMsg.textContent = "Akun ini belum terdaftar di data users Firestore.";
-        return;
-      }
-
-      const userData = snap.data();
-      if (userData.role === "admin") {
-        errorMsg.textContent = "Login berhasil sebagai ADMIN. (Halaman admin.html dibuat setelah ini.)";
-      } else {
-        errorMsg.textContent = "Login berhasil sebagai " + userData.role.toUpperCase() + ". (Halaman child.html dibuat setelah ini.)";
-      }
+      await login(email, password); // login() sudah otomatis redirect ke admin.html / child.html
     } catch (err) {
       errorMsg.textContent = "Login gagal: " + err.message;
     }

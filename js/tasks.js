@@ -28,14 +28,11 @@
 // Console (fitur itu agak teknis untuk pemula).
 // -----------------------------------------------------------
 
-import { db, storage } from "./firebase.js";
+import { db, IMGBB_API_KEY } from "./firebase.js";
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
   query, where, onSnapshot, serverTimestamp, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import {
-  ref, uploadBytes, getDownloadURL
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-storage.js";
 import { todayStr, yesterdayStr, computeLevel } from "./app.js";
 
 const tasksCol = collection(db, "tasks");
@@ -102,13 +99,37 @@ export function listenPendingLogs(cb) {
   });
 }
 
+// Upload foto bukti ke ImgBB (hosting gambar gratis, pengganti Firebase Storage
+// yang butuh paket berbayar Blaze). File difoto/dipilih di HP -> dikirim ke
+// ImgBB -> ImgBB balikin URL publik -> URL itu yang disimpan di Firestore,
+// sama persis alurnya seperti sebelumnya, cuma sumber upload-nya beda.
+async function uploadPhotoToImgbb(file) {
+  if (!IMGBB_API_KEY || IMGBB_API_KEY.startsWith("GANTI_DENGAN")) {
+    throw new Error(
+      "API key ImgBB belum diisi. Buka js/firebase.js, isi IMGBB_API_KEY dengan key gratis dari https://api.imgbb.com/"
+    );
+  }
+
+  const formData = new FormData();
+  formData.append("image", file);
+
+  const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+    method: "POST",
+    body: formData
+  });
+
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json?.error?.message || "Upload foto ke ImgBB gagal, coba lagi.");
+  }
+
+  return json.data.url;
+}
+
 // Upload foto bukti untuk satu tugas pada tanggal hari ini, lalu buat/timpa dokumen log.
 export async function submitTaskPhoto(task, childId, file) {
   const date = todayStr();
-  const path = `children/${childId}/tasks/${task.id}/${date}/${Date.now()}_${file.name}`;
-  const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file);
-  const photoUrl = await getDownloadURL(storageRef);
+  const photoUrl = await uploadPhotoToImgbb(file);
 
   const logId = logIdFor(task.id, date);
   await setDoc(doc(db, "logs", logId), {

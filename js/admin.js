@@ -37,7 +37,13 @@ export async function loadChildren() {
   });
   unsubscribers.push(queueUnsub);
 
-  const snap = await getDocs(collection(db, "children"));
+  let snap;
+  try {
+    snap = await getDocs(collection(db, "children"));
+  } catch (err) {
+    grid.innerHTML = `<p style="color:#dc2626;font-weight:700;">⚠️ Gagal memuat data anak: ${err.message}</p>`;
+    return;
+  }
 
   if (snap.empty) {
     grid.innerHTML = "<p>Belum ada data anak. Tambahkan dokumen di collection 'children' pada Firestore.</p>";
@@ -46,6 +52,8 @@ export async function loadChildren() {
 
   for (const docSnap of snap.docs) {
     const childId = docSnap.id;
+    let card;
+    try {
 
     // Pastikan saldo sudah up to date (tutup buku otomatis untuk hari-hari
     // yang jamnya sudah lewat 22:00 dan belum dihitung).
@@ -55,7 +63,7 @@ export async function loadChildren() {
     const level = computeLevel(data.xp ?? 0);
     const allowance = data.dailyAllowance ?? DEFAULT_ALLOWANCE[childId] ?? 0;
 
-    const card = document.createElement("div");
+    card = document.createElement("div");
     card.className = "child-card";
     card.innerHTML = `
       <h3>${data.emoji || "🧒"} ${data.name || childId}</h3>
@@ -155,6 +163,14 @@ export async function loadChildren() {
       renderDailyReport(reportEl, history);
     });
     unsubscribers.push(reportUnsub);
+
+    } catch (err) {
+      const errCard = document.createElement("div");
+      errCard.className = "child-card";
+      errCard.innerHTML = `<p style="color:#dc2626;font-weight:700;">⚠️ Gagal memuat data untuk "${childId}": ${err.message}</p>`;
+      grid.appendChild(errCard);
+      console.error(`loadChildren: error processing child ${childId}`, err);
+    }
   }
 }
 

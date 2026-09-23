@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulasi Saldo Jajan Harian</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:'Segoe UI',Roboto,Arial,sans-serif; background:#f4f6fb; color:#1f2937; }
+  header { background:#4f46e5; color:white; padding:16px 20px; }
+  header h1 { margin:0; font-size:18px; }
+  header p { margin:4px 0 0; font-size:12.5px; opacity:.85; }
+  main { max-width:640px; margin:0 auto; padding:16px; }
+  .card { background:white; border-radius:14px; padding:16px; box-shadow:0 4px 12px rgba(0,0,0,.06); margin-bottom:16px; }
+  .card h2 { margin:0 0 10px; font-size:15px; }
+  label { display:block; font-size:12.5px; font-weight:600; margin:8px 0 4px; }
+  input, select { width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; }
+  .row { display:flex; gap:8px; }
+  .row > * { flex:1; }
+  .task-item { display:flex; gap:6px; align-items:center; padding:8px 0; border-bottom:1px dashed #eee; font-size:13px; }
+  .task-item:last-child { border-bottom:none; }
+  .task-item input[type="text"] { flex:2; }
+  .task-item select { flex:2; }
+  .task-item input[type="number"] { flex:1; }
+  .task-item button { flex:0 0 auto; border:none; background:transparent; cursor:pointer; font-size:15px; }
+  .btn { padding:10px 14px; border:none; border-radius:10px; font-size:13.5px; font-weight:600; cursor:pointer; }
+  .btn-primary { background:#4f46e5; color:white; width:100%; margin-top:10px; }
+  .btn-secondary { background:#e5e7eb; color:#1f2937; }
+  .btn-ghost { background:none; border:1px dashed #c7d2fe; color:#4f46e5; width:100%; margin-top:8px; }
+  .summary-row { display:flex; justify-content:space-between; padding:6px 0; font-size:13.5px; }
+  .summary-row b { font-size:15px; }
+  .kid-quote { background:#fff7ed; border:1px solid #fdba74; border-radius:12px; padding:12px 14px; font-size:14px; margin-top:10px; }
+  .history-day { border-bottom:1px dashed #eee; padding:8px 0; font-size:13px; }
+  .history-day:last-child { border-bottom:none; }
+  .history-head { display:flex; justify-content:space-between; font-weight:600; }
+  .history-detail { font-size:12px; color:#6b7280; margin-top:4px; }
+  .muted { color:#9ca3af; font-size:12.5px; }
+  .status-done { color:#059669; }
+  .status-late { color:#d97706; }
+  .status-missed { color:#dc2626; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🧪 Simulasi Saldo Jajan Harian</h1>
+  <p>Uji algoritma "tutup buku jam 22:00" dari Hari 1, pakai angka yang sama seperti dipakai di aplikasi.</p>
+</header>
+
+<main>
+  <div class="card">
+    <h2>⚙️ Pengaturan</h2>
+    <label>Jatah dasar per hari (Rp)</label>
+    <input type="number" id="allowanceInput" value="25000" step="500" min="0">
+    <p class="muted" style="margin-top:6px;">Aturan: tidak dikerjakan sama sekali = -Rp1.500/tugas. Telat kirim bukti = -Rp500 tiap kelipatan 5 menit telat, maksimal -Rp1.500 (tercapai di menit ke-15). Jajan besok = jatah dasar dikurangi total potongan HARI ITU SAJA (bukan sisa hari sebelumnya) — jadi tiap hari baru selalu mulai dari hitungan bersih lagi.</p>
+  </div>
+
+  <div class="card">
+    <h2 id="dayTitle">📅 Hari 1 — daftar tugas</h2>
+    <div id="taskList"></div>
+    <button class="btn-ghost" id="addTaskBtn">+ Tambah tugas</button>
+    <button class="btn-secondary btn" id="fillExampleBtn" style="margin-top:8px;width:100%;">Isi contoh (2 bolong + 2 telat 5 menit)</button>
+    <button class="btn-primary" id="closeDayBtn">🔒 Tutup Buku Jam 22:00</button>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none;">
+    <h2>📊 Hasil Tutup Buku</h2>
+    <div id="resultSummary"></div>
+    <div class="kid-quote" id="kidQuote"></div>
+  </div>
+
+  <div class="card">
+    <h2>📜 Laporan / Riwayat Semua Hari (untuk evaluasi)</h2>
+    <div id="historyBox"><p class="muted">Belum ada hari yang ditutup.</p></div>
+  </div>
+</main>
+
+<script type="module">
+  import { lateDeduction, MISSED_TASK_DEDUCTION, formatRupiah } from "./js/app.js";
+
+  let dayNumber = 1;
+  let taskSeq = 0;
+  let tasks = []; // { id, title, mode: 'done'|'late'|'missed', lateMinutes }
+  const history = [];
+
+  const taskListEl = document.getElementById("taskList");
+  const dayTitleEl = document.getElementById("dayTitle");
+  const allowanceInput = document.getElementById("allowanceInput");
+
+  function addTask(title = "", mode = "done", lateMinutes = 5) {
+    const id = ++taskSeq;
+    tasks.push({ id, title, mode, lateMinutes });
+    renderTasks();
+  }
+
+  function renderTasks() {
+    taskListEl.innerHTML = "";
+    tasks.forEach((t) => {
+      const row = document.createElement("div");
+      row.className = "task-item";
+      row.innerHTML = `
+        <input type="text" placeholder="Nama tugas" value="${t.title}" data-field="title">
+        <select data-field="mode">
+          <option value="done" ${t.mode === "done" ? "selected" : ""}>✅ Selesai tepat waktu</option>
+          <option value="late" ${t.mode === "late" ? "selected" : ""}>⏰ Telat</option>
+          <option value="missed" ${t.mode === "missed" ? "selected" : ""}>❌ Tidak dikerjakan</option>
+        </select>
+        <input type="number" min="0" step="5" value="${t.lateMinutes}" data-field="lateMinutes"
+          style="display:${t.mode === "late" ? "block" : "none"};" title="Menit telat">
+        <button data-action="remove" title="Hapus">🗑️</button>
+      `;
+      row.querySelector('[data-field="title"]').addEventListener("input", (e) => { t.title = e.target.value; });
+      row.querySelector('[data-field="mode"]').addEventListener("change", (e) => {
+        t.mode = e.target.value;
+        renderTasks();
+      });
+      const lateInput = row.querySelector('[data-field="lateMinutes"]');
+      if (lateInput) lateInput.addEventListener("input", (e) => { t.lateMinutes = Number(e.target.value) || 0; });
+      row.querySelector('[data-action="remove"]').addEventListener("click", () => {
+        tasks = tasks.filter((x) => x.id !== t.id);
+        renderTasks();
+      });
+      taskListEl.appendChild(row);
+    });
+    if (tasks.length === 0) {
+      taskListEl.innerHTML = `<p class="muted">Belum ada tugas. Klik "+ Tambah tugas".</p>`;
+    }
+  }
+
+  document.getElementById("addTaskBtn").addEventListener("click", () => addTask());
+
+  document.getElementById("fillExampleBtn").addEventListener("click", () => {
+    tasks = [];
+    taskSeq = 0;
+    addTask("Sikat gigi pagi", "missed");
+    addTask("Rapikan tempat tidur", "missed");
+    addTask("Belajar sore", "late", 5);
+    addTask("Sholat maghrib", "late", 5);
+    addTask("Kerjakan PR", "done");
+    renderTasks();
+  });
+
+  document.getElementById("closeDayBtn").addEventListener("click", () => {
+    const allowance = Number(allowanceInput.value) || 0;
+
+    const report = tasks
+      .filter((t) => t.title.trim() !== "")
+      .map((t) => {
+        if (t.mode === "missed") return { title: t.title, status: "missed", deduction: MISSED_TASK_DEDUCTION };
+        if (t.mode === "late") return { title: t.title, status: "late", deduction: lateDeduction(t.lateMinutes), lateMinutes: t.lateMinutes };
+        return { title: t.title, status: "done", deduction: 0 };
+      });
+
+    const totalDeduction = report.reduce((sum, r) => sum + r.deduction, 0);
+    const saldoBesok = Math.max(0, allowance - totalDeduction);
+    const doneCount = report.filter((r) => r.status === "done").length;
+    const lateCount = report.filter((r) => r.status === "late").length;
+    const missedCount = report.filter((r) => r.status === "missed").length;
+
+    history.unshift({ day: dayNumber, report, totalDeduction, saldoBesok, doneCount, lateCount, missedCount });
+
+    // Tampilkan hasil
+    const resultCard = document.getElementById("resultCard");
+    resultCard.style.display = "block";
+    document.getElementById("resultSummary").innerHTML = `
+      <div class="summary-row"><span>✅ Selesai tepat waktu</span><span>${doneCount} tugas</span></div>
+      <div class="summary-row"><span>⏰ Telat</span><span>${lateCount} tugas</span></div>
+      <div class="summary-row"><span>❌ Tidak dikerjakan</span><span>${missedCount} tugas</span></div>
+      <div class="summary-row"><span>Total potongan hari ini</span><b>-${formatRupiah(totalDeduction)}</b></div>
+      <div class="summary-row"><span>Jajan BESOK (Hari ${dayNumber + 1})</span><b>${formatRupiah(saldoBesok)}</b></div>
+    `;
+    document.getElementById("kidQuote").textContent =
+      `"Yah, jajanku besok cuma ${formatRupiah(saldoBesok)}..." 😅`;
+
+    renderHistory();
+
+    // Mulai hari baru: saldo SELALU reset ke jatah dasar, tugas yang sama
+    // dibawa lagi tapi statusnya dikosongkan ulang (belum dikerjakan).
+    dayNumber += 1;
+    dayTitleEl.textContent = `📅 Hari ${dayNumber} — daftar tugas`;
+    tasks = tasks.map((t) => ({ ...t, mode: "done" }));
+    renderTasks();
+  });
+
+  function renderHistory() {
+    const box = document.getElementById("historyBox");
+    box.innerHTML = "";
+    history.forEach((h) => {
+      const el = document.createElement("div");
+      el.className = "history-day";
+      el.innerHTML = `
+        <div class="history-head">
+          <span>Hari ${h.day}</span>
+          <span>${h.totalDeduction > 0 ? `-${formatRupiah(h.totalDeduction)}` : "Lengkap ✅"} → jajan Hari ${h.day + 1}: ${formatRupiah(h.saldoBesok)}</span>
+        </div>
+        <div class="history-detail">
+          ${h.report.map((r) => `<div>${r.title}: <span class="status-${r.status}">${
+            r.status === "done" ? "selesai tepat waktu" : r.status === "late" ? `telat ${r.lateMinutes} menit (-${formatRupiah(r.deduction)})` : `tidak dikerjakan (-${formatRupiah(r.deduction)})`
+          }</span></div>`).join("")}
+        </div>
+      `;
+      box.appendChild(el);
+    });
+  }
+
+  // Isi awal: 3 tugas kosong biar langsung kelihatan bentuknya
+  addTask("Sikat gigi pagi", "done");
+  addTask("Belajar sore", "done");
+  addTask("Rapikan tempat tidur", "done");
+</script>
+
+</body>
+</html>

@@ -27,16 +27,29 @@ service cloud.firestore {
     // ---------- children ----------
     // Admin: baca & tulis semua data anak.
     // Anak: hanya boleh membaca datanya sendiri. Anak JUGA boleh meng-update
-    // field "coin" miliknya sendiri (khusus untuk tukar reward), dan HANYA
-    // boleh mengurangi nilainya, tidak boleh mengubah field lain (xp, saldo,
-    // hpStatus, dst tetap hanya bisa diubah admin).
+    // beberapa field miliknya sendiri lewat website/app (karena hosting statis
+    // tidak punya Cloud Functions untuk jalan otomatis di server):
+    //  - "coin": hanya boleh berkurang (tukar reward)
+    //  - "saldo" + "saldoDate" + "lastClosedDate" bareng: proses "tutup buku"
+    //    harian jam 22:00 yang menentukan jajan besok (nilainya bisa naik
+    //    turun tergantung hasil evaluasi, bukan cuma boleh berkurang)
+    // Field lain (xp, streak, hpStatus, dailyAllowance, dst) tetap hanya admin.
+    // Catatan: sama seperti streak (lihat README), ini bukan sistem anti-cheat
+    // yang ketat — untuk keluarga, tingkat kepercayaan ini cukup.
     match /children/{childId} {
       allow read: if isAdmin() || isOwnerChild(childId);
       allow update: if isAdmin() || (
-        isOwnerChild(childId) &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["coin"]) &&
-        request.resource.data.coin < resource.data.coin &&
-        request.resource.data.coin >= 0
+        isOwnerChild(childId) && (
+          (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(["coin"]) &&
+            request.resource.data.coin < resource.data.coin &&
+            request.resource.data.coin >= 0
+          ) ||
+          (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(["saldo", "saldoDate", "lastClosedDate"]) &&
+            request.resource.data.saldo >= 0
+          )
+        )
       );
       allow create, delete: if isAdmin();
     }
@@ -70,6 +83,15 @@ service cloud.firestore {
         request.resource.data.xpReward == resource.data.xpReward
       );
 
+      allow delete: if isAdmin();
+    }
+
+    // ---------- saldoHistory ----------
+    // Rekap "tutup buku" tiap hari (jam 22:00): potongan telat/tidak dikerjakan
+    // dan hasil saldo untuk hari berikutnya. ID dokumen = {childId}_{tanggal}.
+    match /saldoHistory/{historyId} {
+      allow read: if isAdmin() || isOwnerChild(resource.data.childId);
+      allow create, update: if isAdmin() || isOwnerChild(request.resource.data.childId);
       allow delete: if isAdmin();
     }
 

@@ -24,9 +24,12 @@ Panduan ini untuk kamu yang baru pertama kali pakai Firebase. Ikuti urutan dari 
 3. Pilih mode **Production mode**
 4. Pilih lokasi server (misalnya `asia-southeast2` / Jakarta) > Enable
 
-### 4. Aktifkan Storage
-1. Sidebar > **Build > Storage**
-2. Klik **Get started** > pilih Production mode > pilih lokasi yang sama seperti Firestore > Done
+### 4. (Dilewati) Storage Firebase TIDAK dipakai
+Firebase Storage butuh paket berbayar **Blaze**, jadi project ini
+**tidak** pakai Firebase Storage sama sekali. Foto bukti tugas
+di-upload ke **ImgBB** (gratis selamanya, tanpa kartu kredit) —
+setup-nya ada di langkah 5b di bawah. Lewati langkah "Aktifkan
+Storage" di Firebase Console.
 
 ### 5. Tambahkan Web App (untuk website admin)
 1. Di halaman utama project, klik ikon **</>** (Web)
@@ -35,6 +38,14 @@ Panduan ini untuk kamu yang baru pertama kali pakai Firebase. Ikuti urutan dari 
 4. Klik **Register app**
 5. Firebase akan menampilkan `firebaseConfig` — **copy semua isinya**
 6. Buka file `website/js/firebase.js` di project ini, ganti bagian `GANTI_DENGAN_...` dengan nilai yang kamu copy tadi
+
+### 5b. Setup ImgBB (untuk upload foto bukti, GRATIS)
+1. Buka https://api.imgbb.com/
+2. Login pakai email atau akun Google
+3. Setelah masuk dashboard, copy **API key** yang ditampilkan
+4. Buka file `website/js/firebase.js`, cari `IMGBB_API_KEY` dan
+   tempel API key tadi menggantikan `"GANTI_DENGAN_API_KEY_IMGBB_KAMU"`
+5. Selesai — tidak perlu isi kartu kredit apapun, ImgBB gratis selamanya
 
 ### 6. Buat User Pertama (admin, Khanaya, Asensio)
 1. Sidebar > **Authentication > Users > Add user**
@@ -73,13 +84,11 @@ Panduan ini untuk kamu yang baru pertama kali pakai Firebase. Ikuti urutan dari 
    - `hpStatus` (string) = `aktif`
 3. Document ID: `asensio` — isi field yang sama, sesuaikan nama & emoji `👦`
 
-### 9. Pasang Firestore & Storage Rules
+### 9. Pasang Firestore Rules
 1. Sidebar > **Firestore Database > Rules**
 2. Hapus isi default, ganti dengan isi file `website/firestore.rules` dari project ini
 3. Klik **Publish**
-4. Sidebar > **Storage > Rules**
-5. Ganti isinya dengan isi file `website/storage.rules`
-6. Klik **Publish**
+4. (File `website/storage.rules` tidak perlu dipasang — Storage tidak dipakai lagi)
 
 ---
 
@@ -154,7 +163,8 @@ Tambahkan juga di `AndroidManifest.xml`, daftarkan `LoginActivity` dan `ChildDas
 ## Status Phase 1
 
 ✅ Struktur project (web + Android)
-✅ Firebase project + Authentication + Firestore + Storage aktif
+✅ Firebase project + Authentication + Firestore aktif (Storage tidak
+   dipakai, upload foto pakai ImgBB gratis)
 ✅ Login & role system (admin / khanaya / asensio)
 ✅ Admin dashboard sederhana (lihat data dasar 2 anak)
 ✅ Child dashboard sederhana (web utk testing + kerangka Android)
@@ -164,13 +174,14 @@ Tambahkan juga di `AndroidManifest.xml`, daftarkan `LoginActivity` dan `ChildDas
 
 ## BAGIAN E — PHASE 2: TUGAS, REMINDER, UPLOAD BUKTI, HP STATUS
 
-### 1. Update Firestore & Storage Rules
-File `firestore.rules` dan `storage.rules` sudah ditambah aturan untuk
-collection baru `tasks` dan `logs`, plus izin upload foto.
+### 1. Update Firestore Rules
+File `firestore.rules` sudah ditambah aturan untuk collection baru
+`tasks` dan `logs`.
 1. Firebase Console > **Firestore Database > Rules** > copy-paste ulang isi
    `firestore.rules` yang baru > **Publish**
-2. Firebase Console > **Storage > Rules** > copy-paste ulang isi
-   `storage.rules` yang baru > **Publish**
+
+Upload foto bukti tugas pakai **ImgBB** (lihat langkah 5b di Bagian A),
+jadi tidak perlu Storage Rules sama sekali.
 
 Tidak perlu bikin collection `tasks`/`logs` manual — akan otomatis
 terbentuk saat admin menambah tugas pertama lewat dashboard.

@@ -1,3 +1,8 @@
+// CATATAN: File ini SUDAH TIDAK DIPAKAI LAGI.
+// Upload foto bukti sekarang pakai ImgBB (gratis), bukan Firebase Storage
+// lagi (yang butuh paket berbayar Blaze). Jadi Storage tidak perlu
+// diaktifkan/dipasang rules-nya sama sekali. File ini dibiarkan di sini
+// hanya sebagai arsip.
 rules_version = '2';
 
 service firebase.storage {

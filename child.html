@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard Anak</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h2 id="greeting">👋 Hai!</h2>
+  <button id="logoutBtn" class="btn-secondary">Keluar</button>
+</header>
+
+<main class="admin-container">
+  <p>Ini adalah versi web sementara untuk testing login.</p>
+  <p>Dashboard lengkap dengan misi, XP, level, dan streak akan dibuat di <b>Android App</b> pada Phase 2.</p>
+</main>
+
+<script type="module">
+  import { guardPage, logout } from "./js/auth.js";
+
+  document.getElementById("logoutBtn").addEventListener("click", logout);
+
+  guardPage("child", (user, userData) => {
+    document.getElementById("greeting").textContent = "👋 Hai, " + (userData.name || "Anak") + "!";
+  });
+</script>
+
+</body>
+</html>

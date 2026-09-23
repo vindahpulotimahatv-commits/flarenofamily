@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Misi Harian Keluarga - Login</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="login-box">
+  <h1>🎯 Misi Harian Keluarga</h1>
+  <p class="subtitle">Login untuk masuk ke dashboard</p>
+
+  <form id="loginForm">
+    <label for="email">Email</label>
+    <input type="email" id="email" required placeholder="contoh: admin@keluarga.com">
+
+    <label for="password">Password</label>
+    <input type="password" id="password" required placeholder="Password">
+
+    <button type="submit">Masuk</button>
+  </form>
+
+  <p id="errorMsg" class="error"></p>
+</div>
+
+<script type="module">
+  import { login } from "./js/auth.js";
+
+  const form = document.getElementById("loginForm");
+  const errorMsg = document.getElementById("errorMsg");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errorMsg.textContent = "";
+
+    const email = document.getElementById("email").value;
+    const password = document.getElementById("password").value;
+
+    try {
+      await login(email, password);
+    } catch (err) {
+      errorMsg.textContent = "Login gagal: " + err.message;
+    }
+  });
+</script>
+
+</body>
+</html>

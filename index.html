@@ -2,74 +2,44 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Misi Harian Keluarga - Login</title>
-<style>
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font-family: 'Segoe UI', Roboto, Arial, sans-serif;
-    background: #f4f6fb;
-    color: #1f2937;
-  }
-  .login-box {
-    max-width: 380px;
-    margin: 60px auto;
-    background: white;
-    padding: 32px 24px;
-    border-radius: 16px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-    text-align: center;
-  }
-  .login-box h1 { margin-bottom: 4px; font-size: 22px; }
-  .subtitle { color: #6b7280; margin-bottom: 24px; font-size: 14px; }
-  .login-box label {
-    display: block;
-    text-align: left;
-    font-size: 13px;
-    font-weight: 600;
-    margin: 12px 0 4px;
-  }
-  .login-box input {
-    width: 100%;
-    padding: 10px 12px;
-    border: 1px solid #d1d5db;
-    border-radius: 8px;
-    font-size: 14px;
-  }
-  .login-box button {
-    width: 100%;
-    margin-top: 20px;
-    padding: 12px;
-    background: #4f46e5;
-    color: white;
-    border: none;
-    border-radius: 10px;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .login-box button:hover { background: #4338ca; }
-  .error { color: #dc2626; font-size: 13px; margin-top: 12px; }
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Flareno Jurnal - Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body class="login-body">
 
-<div class="login-box">
-  <h1>🎯 Misi Harian Keluarga</h1>
-  <p class="subtitle">Login untuk masuk ke dashboard</p>
+<div class="login-wrap">
+  <div class="login-box">
 
-  <form id="loginForm">
-    <label for="email">Email</label>
-    <input type="email" id="email" required placeholder="contoh: admin@keluarga.com">
+    <div class="brand-lockup">
+      <div class="brand-crown">👑</div>
+      <h1 class="brand-logo">
+        <span class="brand-flareno">FLARENO</span>
+        <span class="brand-jurnal">JURNAL</span>
+      </h1>
+      <p class="brand-tagline">Jadi Anak Hebat Setiap Hari</p>
+    </div>
 
-    <label for="password">Password</label>
-    <input type="password" id="password" required placeholder="Password">
+    <div class="login-card">
+      <p class="login-eyebrow">🎯 Misi Harian Keluarga</p>
+      <p class="subtitle">Login untuk masuk ke dashboard</p>
 
-    <button type="submit">Masuk</button>
-  </form>
+      <form id="loginForm">
+        <label for="email">✉️ Email</label>
+        <input type="email" id="email" required placeholder="contoh: admin@keluarga.com">
 
-  <p id="errorMsg" class="error"></p>
+        <label for="password">🔒 Password</label>
+        <input type="password" id="password" required placeholder="Password">
+
+        <button type="submit" class="btn-game-primary">➜ Masuk</button>
+      </form>
+
+      <p id="errorMsg" class="error"></p>
+    </div>
+  </div>
 </div>
 
 <script type="module">

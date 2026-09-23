@@ -30,6 +30,13 @@ export async function loadChildren() {
   unsubscribers.forEach((fn) => fn());
   unsubscribers.length = 0;
 
+  // Approval queue (satu untuk semua anak) — dipasang duluan supaya tetap
+  // jalan meski koleksi 'children' kosong atau gagal dimuat.
+  const queueUnsub = listenPendingLogs((logs) => {
+    renderApprovalQueue(logs);
+  });
+  unsubscribers.push(queueUnsub);
+
   const snap = await getDocs(collection(db, "children"));
 
   if (snap.empty) {
@@ -149,12 +156,6 @@ export async function loadChildren() {
     });
     unsubscribers.push(reportUnsub);
   }
-
-  // Approval queue (satu untuk semua anak)
-  const queueUnsub = listenPendingLogs((logs) => {
-    renderApprovalQueue(logs);
-  });
-  unsubscribers.push(queueUnsub);
 }
 
 function renderTaskList(listEl, tasks) {

@@ -71,6 +71,7 @@ export async function loadChildren() {
         <div class="task-section-head">
           <b>📋 Tugas Harian</b>
         </div>
+        <p class="muted" style="font-size:12px;margin-top:-4px;margin-bottom:6px;">🔁 Setiap misi yang ditambahkan di sini otomatis berulang SETIAP HARI — tidak perlu diisi ulang tiap hari. Tekan ⏸️ untuk menonaktifkan sementara atau 🗑️ untuk menghapus permanen.</p>
         <form class="add-task-form" data-child="${childId}">
           <input type="text" name="title" placeholder="Nama tugas (mis. Sikat gigi)" required>
           <select name="category">

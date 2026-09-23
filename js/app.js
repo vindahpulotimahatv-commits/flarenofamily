@@ -55,6 +55,10 @@ export function formatTanggal(dateStr) {
 }
 
 // Tanggal hari ini dalam format "YYYY-MM-DD" (dipakai sebagai bagian ID log).
+// PENTING: sengaja pakai jam LOKAL perangkat (getFullYear/getMonth/getDate),
+// BUKAN toISOString() (yang konversi ke UTC dan bisa salah tanggal/jam kalau
+// zona waktu perangkat bukan UTC). Ini memastikan tanggal & jam yang dipakai
+// aplikasi selalu sama dengan tanggal & jam ASLI/REAL-TIME di perangkat.
 export function todayStr() {
   const d = new Date();
   const y = d.getFullYear();
@@ -144,4 +148,27 @@ export function formatCountdown(ms) {
   return `${h}:${m}:${s}`;
 }
 
-// Target Date object untuk jam "HH:MM" hari ini (dipakai buat countdown per detik).
+// ---------- MISI BARU DIBUAT SETELAH JAMNYA LEWAT HARI INI ----------
+// Kalau admin menambah misi jam 17:44 dengan target jam 08:00, misi itu
+// otomatis berulang tiap hari (tidak perlu diisi ulang) TAPI kalau langsung
+// dievaluasi untuk HARI INI, statusnya pasti "TERLAMBAT" padahal anak belum
+// pernah punya kesempatan mengerjakannya. Fungsi ini menentukan tanggal
+// pertama misi itu "berlaku": kalau jam targetnya hari ini sudah lewat saat
+// dibuat, misi baru berlaku mulai BESOK; kalau belum lewat, berlaku mulai
+// hari ini juga.
+export function computeFirstEligibleDate(timeStr) {
+  const target = timeStrToDateToday(timeStr);
+  const today = todayStr();
+  if (Date.now() > target.getTime()) {
+    return addDaysToDateStr(today, 1);
+  }
+  return today;
+}
+
+// Cek apakah sebuah misi sudah "berlaku" untuk tanggal tertentu (dipakai
+// supaya misi yang baru dibuat setelah jamnya lewat hari ini tidak langsung
+// muncul sebagai TERLAMBAT di hari yang sama).
+export function isTaskEligibleOnDate(task, dateStr) {
+  if (!task.firstEligibleDate) return true; // misi lama (sebelum update ini)
+  return dateStr >= task.firstEligibleDate;
+}

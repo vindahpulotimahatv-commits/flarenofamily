@@ -10,7 +10,7 @@ import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/fire
 import {
   formatRupiah, computeLevel, xpProgressInLevel, hpStatusLabel, hpStatusMessage,
   todayStr, categoryIcon, categoryLabel, formatCountdown, timeStrToDateToday,
-  formatTanggal, DEFAULT_ALLOWANCE
+  formatTanggal, DEFAULT_ALLOWANCE, isTaskEligibleOnDate
 } from "./app.js";
 import {
   listenTasksForChild, listenLogsForChild, submitTaskPhoto,
@@ -48,7 +48,11 @@ export function startChildDashboard(childId_, userData) {
   });
 
   listenTasksForChild(childId, (tasks) => {
-    currentTasks = tasks.filter((t) => t.active);
+    const date = todayStr();
+    // Misi yang baru ditambahkan admin SETELAH jam targetnya lewat hari ini
+    // sengaja belum ditampilkan hari ini (biar tidak langsung "TERLAMBAT"
+    // padahal belum pernah sempat dikerjakan) — akan muncul normal mulai besok.
+    currentTasks = tasks.filter((t) => t.active && isTaskEligibleOnDate(t, date));
     renderAll();
   });
 

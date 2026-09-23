@@ -36,7 +36,8 @@ import {
 import {
   todayStr, yesterdayStr, computeLevel, timeStrToDateToday,
   DEFAULT_ALLOWANCE, lateDeduction, MISSED_TASK_DEDUCTION,
-  SALDO_CLOSING_HOUR, addDaysToDateStr
+  SALDO_CLOSING_HOUR, addDaysToDateStr, computeFirstEligibleDate,
+  isTaskEligibleOnDate
 } from "./app.js";
 
 const tasksCol = collection(db, "tasks");
@@ -49,6 +50,11 @@ export function logIdFor(taskId, date) {
 // ---------- TASKS ----------
 
 export async function createTask(childId, { title, description, time, xpReward, category }) {
+  // Misi ini otomatis berulang SETIAP HARI (tidak perlu dibuat ulang tiap
+  // hari) — supaya tidak langsung muncul "TERLAMBAT" kalau ditambahkan
+  // setelah jam targetnya lewat hari ini, misi baru mulai "berlaku" besok
+  // dalam kasus itu (lihat computeFirstEligibleDate di app.js).
+  const firstEligibleDate = computeFirstEligibleDate(time);
   return addDoc(tasksCol, {
     childId,
     title: title.trim(),
@@ -57,6 +63,7 @@ export async function createTask(childId, { title, description, time, xpReward, 
     category: category || "belajar",
     xpReward: Number(xpReward) || 0,
     active: true,
+    firstEligibleDate,
     createdAt: serverTimestamp()
   });
 }
@@ -122,7 +129,7 @@ async function closeSaldoDay(childId, date, dailyAllowance) {
   const activeTasks = [];
   tSnap.forEach((d) => {
     const t = d.data();
-    if (t.active) activeTasks.push({ id: d.id, title: t.title || "" });
+    if (t.active && isTaskEligibleOnDate(t, date)) activeTasks.push({ id: d.id, title: t.title || "" });
   });
 
   const lSnap = await getDocs(query(logsCol, where("childId", "==", childId)));
@@ -363,7 +370,7 @@ async function isFullyCompleteForDate(childId, date, justApprovedTaskId) {
   const activeTasks = [];
   tSnap.forEach((d) => {
     const t = d.data();
-    if (t.active) activeTasks.push(d.id);
+    if (t.active && isTaskEligibleOnDate(t, date)) activeTasks.push(d.id);
   });
   if (activeTasks.length === 0) return false;
 

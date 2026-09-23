@@ -225,6 +225,24 @@ body {
   border-radius: 10px;
   flex-shrink: 0;
 }
+.approval-photo-broken {
+  width: 90px;
+  height: 90px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-radius: 10px;
+  background: #fff4f4;
+  border: 1px dashed #e08888;
+  color: #b23c3c;
+  font-size: 11px;
+  line-height: 1.3;
+  padding: 4px;
+  text-decoration: none;
+}
 .approval-info { flex: 1; }
 .approval-info p { margin: 2px 0; font-size: 13px; }
 .approval-actions { display: flex; gap: 8px; margin-top: 6px; }

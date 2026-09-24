@@ -644,13 +644,38 @@ function setupModal() {
   });
 }
 
-function handlePhotoPick(file) {
+// Kecilkan foto sebelum dikirim, supaya upload tetap cepat & tidak gagal
+// walau sinyal anak lagi lemah (paket data). Foto kamera HP bisa 5-15MB,
+// setelah dikecilkan biasanya jadi <500KB tanpa terlihat beda di mata.
+async function compressPhoto(file, maxDimension = 1280, quality = 0.7) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    let { width, height } = bitmap;
+    if (width > maxDimension || height > maxDimension) {
+      const scale = maxDimension / Math.max(width, height);
+      width = Math.round(width * scale);
+      height = Math.round(height * scale);
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    if (!blob) return file; // gagal compress, pakai file asli sebagai fallback
+    return new File([blob], "bukti.jpg", { type: "image/jpeg" });
+  } catch (e) {
+    // Browser lama / format aneh: kirim file asli saja daripada gagal total
+    return file;
+  }
+}
+
+async function handlePhotoPick(file) {
   if (!file) return;
-  pendingPhotoFile = file;
   const preview = document.getElementById("modalPreview");
-  preview.src = URL.createObjectURL(file);
+  preview.src = URL.createObjectURL(file); // preview pakai file asli, biar instan
   preview.style.display = "block";
   document.getElementById("modalSendBtn").style.display = "block";
+  pendingPhotoFile = await compressPhoto(file);
 }
 
 function openModal(taskId) {

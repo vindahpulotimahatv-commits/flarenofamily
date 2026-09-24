@@ -270,14 +270,30 @@ async function uploadPhotoToImgbb(file) {
   const formData = new FormData();
   formData.append("image", file);
 
-  const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
-    method: "POST",
-    body: formData
-  });
+  // Batasi waktu tunggu 25 detik — kalau sinyal jelek, mending gagal cepat
+  // dengan pesan jelas daripada nge-hang lama di tombol "Mengirim...".
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+  let res;
+  try {
+    res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+      method: "POST",
+      body: formData,
+      signal: controller.signal
+    });
+  } catch (e) {
+    if (e.name === "AbortError") {
+      throw new Error("Koneksi terlalu lambat (lebih dari 25 detik). Coba cari sinyal/WiFi yang lebih kuat lalu ulangi.");
+    }
+    throw new Error("Tidak bisa terhubung ke internet. Cek koneksi lalu coba lagi.");
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   const json = await res.json();
   if (!res.ok || !json.success) {
-    throw new Error(json?.error?.message || "Upload foto ke ImgBB gagal, coba lagi.");
+    throw new Error(json?.error?.message || "Upload foto gagal, coba lagi.");
   }
 
   return json.data.url;

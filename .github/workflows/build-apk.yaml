@@ -1,0 +1,1263 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Buat project Android
+        run: |
+          mkdir -p android-app/app
+          cat > android-app/app/build.gradle.kts <<'FLARENO_EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.flareno.jurnal"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.flareno.jurnal"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              signingConfigs {
+                  create("flareno") {
+                      storeFile = rootProject.file("flareno.keystore")
+                      storePassword = "flareno123"
+                      keyAlias = "flareno"
+                      keyPassword = "flareno123"
+                  }
+              }
+
+              buildTypes {
+                  getByName("debug") {
+                      signingConfig = signingConfigs.getByName("flareno")
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.appcompat:appcompat:1.7.0")
+          }
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main
+          cat > android-app/app/src/main/AndroidManifest.xml <<'FLARENO_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+              <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+              <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+              <application
+                  android:allowBackup="false"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:label="Flareno Jurnal"
+                  android:theme="@style/AppTheme"
+                  android:usesCleartextTraffic="false">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTask"
+                      android:screenOrientation="portrait"
+                      android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".MonitorService"
+                      android:exported="false"
+                      android:foregroundServiceType="dataSync" />
+
+                  <receiver
+                      android:name=".AdminReceiver"
+                      android:exported="true"
+                      android:permission="android.permission.BIND_DEVICE_ADMIN">
+                      <meta-data
+                          android:name="android.app.device_admin"
+                          android:resource="@xml/device_admin" />
+                      <intent-filter>
+                          <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+                      </intent-filter>
+                  </receiver>
+
+                  <receiver
+                      android:name=".BootReceiver"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.BOOT_COMPLETED" />
+                          <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                      </intent-filter>
+                  </receiver>
+
+                  <receiver
+                      android:name=".UnlockReceiver"
+                      android:exported="false" />
+
+                  <provider
+                      android:name="androidx.core.content.FileProvider"
+                      android:authorities="${applicationId}.fileprovider"
+                      android:exported="false"
+                      android:grantUriPermissions="true">
+                      <meta-data
+                          android:name="android.support.FILE_PROVIDER_PATHS"
+                          android:resource="@xml/file_paths" />
+                  </provider>
+              </application>
+          </manifest>
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main/java/com/flareno/jurnal
+          cat > android-app/app/src/main/java/com/flareno/jurnal/AdminReceiver.kt <<'FLARENO_EOF'
+          package com.flareno.jurnal
+
+          import android.app.admin.DeviceAdminReceiver
+
+          class AdminReceiver : DeviceAdminReceiver()
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main/java/com/flareno/jurnal
+          cat > android-app/app/src/main/java/com/flareno/jurnal/BootReceiver.kt <<'FLARENO_EOF'
+          package com.flareno.jurnal
+
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+          import androidx.core.content.ContextCompat
+
+          class BootReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent) {
+                  if (Config.isMonitoring(context)) {
+                      try {
+                          ContextCompat.startForegroundService(context, Intent(context, MonitorService::class.java))
+                      } catch (e: Exception) {
+                          // sistem menolak start dari background
+                      }
+                  }
+              }
+          }
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main/java/com/flareno/jurnal
+          cat > android-app/app/src/main/java/com/flareno/jurnal/Config.kt <<'FLARENO_EOF'
+          package com.flareno.jurnal
+
+          import android.content.Context
+          import java.text.SimpleDateFormat
+          import java.util.Date
+          import java.util.Locale
+
+          object Config {
+              const val SITE_URL = "https://vindahpulotimahatv-commits.github.io/flarenofamily/"
+              const val SITE_HOST = "vindahpulotimahatv-commits.github.io"
+              const val PROJECT_ID = "misi-harian-keluarga"
+              private const val PREFS = "flareno"
+
+              fun prefs(c: Context) = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+              // Status aplikasi (dipakai service untuk memutuskan boleh mengunci atau tidak)
+              @Volatile var appForeground = false
+              @Volatile var keepUntil = 0L
+              @Volatile var graceUntil = 0L
+
+              fun isMonitoring(c: Context): Boolean {
+                  val p = prefs(c)
+                  val rt = p.getString("refreshToken", "") ?: ""
+                  if (rt.isEmpty()) return false
+                  val childId = p.getString("childId", "") ?: ""
+                  return p.getString("mode", "child") == "admin" || childId.isNotEmpty()
+              }
+
+              fun todayStr(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+
+              fun statusText(status: String): String = when (status) {
+                  "terbatas" -> "HP terbatas. Selesaikan misi untuk membuka kembali."
+                  "terkunci" -> "HP dikunci. Tugas belum diselesaikan."
+                  "habis" -> "Waktu HP hari ini sudah habis."
+                  else -> "HP kembali aktif. Semua aman, main sewajarnya ya!"
+              }
+          }
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main/java/com/flareno/jurnal
+          cat > android-app/app/src/main/java/com/flareno/jurnal/Fire.kt <<'FLARENO_EOF'
+          package com.flareno.jurnal
+
+          import android.content.Context
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.io.IOException
+          import java.net.HttpURLConnection
+          import java.net.URL
+          import java.net.URLEncoder
+
+          class Doc(val id: String, val f: JSONObject) {
+              fun str(k: String): String? {
+                  val o = f.optJSONObject(k) ?: return null
+                  return if (o.has("stringValue")) o.getString("stringValue") else null
+              }
+
+              fun int(k: String): Long? {
+                  val o = f.optJSONObject(k) ?: return null
+                  return if (o.has("integerValue")) o.getString("integerValue").toLongOrNull() else null
+              }
+
+              fun bool(k: String): Boolean? {
+                  val o = f.optJSONObject(k) ?: return null
+                  return if (o.has("booleanValue")) o.getBoolean("booleanValue") else null
+              }
+          }
+
+          // Klien Firestore REST sederhana. Memakai refresh token dari login di website
+          // (dikirim lewat FlarenoNative.registerChild), jadi tidak butuh google-services.json.
+          class Fire(ctx: Context) {
+              private val prefs = Config.prefs(ctx)
+              private var idToken: String? = null
+              private var expiresAt = 0L
+              private val base =
+                  "https://firestore.googleapis.com/v1/projects/" + Config.PROJECT_ID + "/databases/(default)/documents"
+
+              private fun readAll(conn: HttpURLConnection): String {
+                  val code = conn.responseCode
+                  val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+                  val text = stream?.bufferedReader()?.use { it.readText() } ?: ""
+                  if (code !in 200..299) throw IOException("http " + code + " " + text)
+                  return text
+              }
+
+              private fun token(): String {
+                  val cached = idToken
+                  if (cached != null && System.currentTimeMillis() < expiresAt - 60000L) return cached
+
+                  val refresh = prefs.getString("refreshToken", "") ?: ""
+                  val apiKey = prefs.getString("apiKey", "") ?: ""
+                  if (refresh.isEmpty() || apiKey.isEmpty()) throw IOException("belum login")
+
+                  val body = "grant_type=refresh_token&refresh_token=" + URLEncoder.encode(refresh, "UTF-8")
+                  val conn = URL("https://securetoken.googleapis.com/v1/token?key=" + apiKey)
+                      .openConnection() as HttpURLConnection
+                  try {
+                      conn.requestMethod = "POST"
+                      conn.doOutput = true
+                      conn.connectTimeout = 15000
+                      conn.readTimeout = 15000
+                      conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                      conn.setRequestProperty("Referer", Config.SITE_URL)
+                      conn.outputStream.use { it.write(body.toByteArray()) }
+                      val j = JSONObject(readAll(conn))
+                      val id = j.getString("id_token")
+                      idToken = id
+                      expiresAt = System.currentTimeMillis() + j.getString("expires_in").toLong() * 1000L
+                      val newRefresh = j.optString("refresh_token", "")
+                      if (newRefresh.isNotEmpty() && newRefresh != refresh) {
+                          prefs.edit().putString("refreshToken", newRefresh).apply()
+                      }
+                      return id
+                  } finally {
+                      conn.disconnect()
+                  }
+              }
+
+              private fun request(method: String, url: String, body: String?): String {
+                  val conn = URL(url).openConnection() as HttpURLConnection
+                  try {
+                      conn.requestMethod = method
+                      conn.connectTimeout = 15000
+                      conn.readTimeout = 20000
+                      conn.setRequestProperty("Authorization", "Bearer " + token())
+                      if (body != null) {
+                          conn.doOutput = true
+                          conn.setRequestProperty("Content-Type", "application/json")
+                          conn.outputStream.use { it.write(body.toByteArray()) }
+                      }
+                      return readAll(conn)
+                  } finally {
+                      conn.disconnect()
+                  }
+              }
+
+              fun getDoc(collection: String, id: String): Doc {
+                  val j = JSONObject(request("GET", base + "/" + collection + "/" + id, null))
+                  return Doc(id, j.optJSONObject("fields") ?: JSONObject())
+              }
+
+              // Query dengan filter "sama dengan" saja (tidak butuh composite index).
+              fun query(collection: String, filters: List<Pair<String, String>>): List<Doc> {
+                  val fl = JSONArray()
+                  for (p in filters) {
+                      fl.put(
+                          JSONObject().put(
+                              "fieldFilter",
+                              JSONObject()
+                                  .put("field", JSONObject().put("fieldPath", p.first))
+                                  .put("op", "EQUAL")
+                                  .put("value", JSONObject().put("stringValue", p.second))
+                          )
+                      )
+                  }
+                  val where = if (fl.length() == 1) fl.getJSONObject(0)
+                  else JSONObject().put(
+                      "compositeFilter",
+                      JSONObject().put("op", "AND").put("filters", fl)
+                  )
+                  val sq = JSONObject().put(
+                      "structuredQuery",
+                      JSONObject()
+                          .put("from", JSONArray().put(JSONObject().put("collectionId", collection)))
+                          .put("where", where)
+                  )
+                  val arr = JSONArray(request("POST", base + ":runQuery", sq.toString()))
+                  val out = ArrayList<Doc>()
+                  for (i in 0 until arr.length()) {
+                      val d = arr.getJSONObject(i).optJSONObject("document") ?: continue
+                      val id = d.getString("name").substringAfterLast('/')
+                      out.add(Doc(id, d.optJSONObject("fields") ?: JSONObject()))
+                  }
+                  return out
+              }
+              // Daftar dokumen satu collection (dipakai mode orang tua).
+              fun listDocs(collection: String): List<Doc> {
+                  val j = JSONObject(request("GET", base + "/" + collection + "?pageSize=50", null))
+                  val arr = j.optJSONArray("documents") ?: return emptyList()
+                  val out = ArrayList<Doc>()
+                  for (i in 0 until arr.length()) {
+                      val d = arr.getJSONObject(i)
+                      out.add(Doc(d.getString("name").substringAfterLast('/'), d.optJSONObject("fields") ?: JSONObject()))
+                  }
+                  return out
+              }
+
+              private fun docName(collection: String, id: String): String =
+                  "projects/" + Config.PROJECT_ID + "/databases/(default)/documents/" + collection + "/" + id
+
+              // HP anak melapor status kunci ke Firestore supaya orang tua bisa melihatnya.
+              fun setLockInfo(childId: String, locked: Boolean, reason: String, since: Long) {
+                  val fields = JSONObject()
+                      .put("lockState", JSONObject().put("stringValue", if (locked) "locked" else "open"))
+                      .put("lockReason", JSONObject().put("stringValue", reason))
+                      .put("lockSince", JSONObject().put("integerValue", since.toString()))
+                  val write = JSONObject()
+                      .put("update", JSONObject().put("name", docName("children", childId)).put("fields", fields))
+                      .put(
+                          "updateMask",
+                          JSONObject().put("fieldPaths", JSONArray().put("lockState").put("lockReason").put("lockSince"))
+                      )
+                  request("POST", base + ":commit", JSONObject().put("writes", JSONArray().put(write)).toString())
+              }
+
+              // Orang tua mengizinkan HP anak dibuka (angka unlockCounter naik 1).
+              fun incrementUnlock(childId: String) {
+                  val write = JSONObject().put(
+                      "transform",
+                      JSONObject()
+                          .put("document", docName("children", childId))
+                          .put(
+                              "fieldTransforms",
+                              JSONArray().put(
+                                  JSONObject()
+                                      .put("fieldPath", "unlockCounter")
+                                      .put("increment", JSONObject().put("integerValue", "1"))
+                              )
+                          )
+                  )
+                  request("POST", base + ":commit", JSONObject().put("writes", JSONArray().put(write)).toString())
+              }
+          }
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main/java/com/flareno/jurnal
+          cat > android-app/app/src/main/java/com/flareno/jurnal/MainActivity.kt <<'FLARENO_EOF'
+          package com.flareno.jurnal
+
+          import android.Manifest
+          import android.app.admin.DevicePolicyManager
+          import android.content.ComponentName
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.os.PowerManager
+          import android.provider.MediaStore
+          import android.provider.Settings
+          import android.webkit.JavascriptInterface
+          import android.webkit.ValueCallback
+          import android.webkit.WebChromeClient
+          import android.webkit.WebResourceError
+          import android.webkit.WebResourceRequest
+          import android.webkit.WebSettings
+          import android.webkit.WebView
+          import android.webkit.WebViewClient
+          import androidx.activity.OnBackPressedCallback
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.content.ContextCompat
+          import androidx.core.content.FileProvider
+          import java.io.File
+
+          class MainActivity : AppCompatActivity() {
+
+              private lateinit var web: WebView
+              private var fileCallback: ValueCallback<Array<Uri>>? = null
+              private var cameraUri: Uri? = null
+
+              private val fileLauncher =
+                  registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+                      val cb = fileCallback
+                      fileCallback = null
+                      if (cb != null) {
+                          var result: Array<Uri>? = null
+                          if (res.resultCode == RESULT_OK) {
+                              val data = res.data
+                              val clip = data?.clipData
+                              if (clip != null && clip.itemCount > 0) {
+                                  result = arrayOf(clip.getItemAt(0).uri)
+                              } else if (data != null && data.data != null) {
+                                  result = arrayOf(data.data!!)
+                              } else {
+                                  val cam = cameraUri
+                                  if (cam != null) result = arrayOf(cam)
+                              }
+                          }
+                          cb.onReceiveValue(result)
+                      }
+                      Config.keepUntil = System.currentTimeMillis() + 5000L
+                  }
+
+              private val notifLauncher =
+                  registerForActivityResult(ActivityResultContracts.RequestPermission()) { setupStep() }
+
+              private val stepLauncher =
+                  registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { setupStep() }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  Notifier.createChannels(this)
+
+                  web = WebView(this)
+                  setContentView(web)
+
+                  val s = web.settings
+                  s.javaScriptEnabled = true
+                  s.domStorageEnabled = true
+                  s.databaseEnabled = true
+                  s.allowFileAccess = false
+                  s.cacheMode = WebSettings.LOAD_DEFAULT
+                  s.userAgentString = s.userAgentString + " FlarenoApp"
+
+                  web.addJavascriptInterface(Bridge(), "FlarenoNative")
+
+                  web.webViewClient = object : WebViewClient() {
+                      override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                          val u = request.url
+                          val host = u.host
+                          if (host == Config.SITE_HOST || u.scheme == "about" || u.scheme == "data") return false
+                          try {
+                              startActivity(Intent(Intent.ACTION_VIEW, u))
+                          } catch (e: Exception) {
+                              // tidak ada aplikasi pembuka
+                          }
+                          return true
+                      }
+
+                      override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                          if (request.isForMainFrame) {
+                              val html = "<html><head><meta name='viewport' content='width=device-width, initial-scale=1'></head>" +
+                                  "<body style='font-family:sans-serif;text-align:center;padding:48px 24px;background:#eaf6ff'>" +
+                                  "<h2>Tidak ada internet</h2><p>Periksa koneksi lalu coba lagi.</p>" +
+                                  "<button style='font-size:18px;padding:12px 28px;border:0;border-radius:12px;background:#1e90ff;color:#fff' " +
+                                  "onclick=\"location.href='" + Config.SITE_URL + "'\">Coba lagi</button></body></html>"
+                              view.loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+                          }
+                      }
+                  }
+
+                  web.webChromeClient = object : WebChromeClient() {
+                      override fun onShowFileChooser(
+                          webView: WebView?,
+                          callback: ValueCallback<Array<Uri>>?,
+                          params: FileChooserParams?
+                      ): Boolean {
+                          fileCallback?.onReceiveValue(null)
+                          fileCallback = callback
+                          launchFileChooser()
+                          return true
+                      }
+                  }
+
+                  onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                      override fun handleOnBackPressed() {
+                          if (web.canGoBack()) web.goBack() else finish()
+                      }
+                  })
+
+                  if (savedInstanceState == null) web.loadUrl(Config.SITE_URL) else web.restoreState(savedInstanceState)
+
+                  // Kalau HP ini sudah pernah login sebagai anak, pastikan pemantauan tetap jalan.
+                  if (Config.isMonitoring(this)) startMonitor()
+              }
+
+              override fun onStart() {
+                  super.onStart()
+                  Config.appForeground = true
+              }
+
+              override fun onStop() {
+                  Config.appForeground = false
+                  super.onStop()
+              }
+
+              override fun onSaveInstanceState(outState: Bundle) {
+                  super.onSaveInstanceState(outState)
+                  web.saveState(outState)
+              }
+
+              private fun launchFileChooser() {
+                  // Selama memilih/mengambil foto, HP tidak dikunci ulang (Mode Kirim Bukti).
+                  Config.keepUntil = System.currentTimeMillis() + 180000L
+                  val content = Intent(Intent.ACTION_GET_CONTENT).apply {
+                      addCategory(Intent.CATEGORY_OPENABLE)
+                      type = "image/*"
+                  }
+                  val chooser = Intent.createChooser(content, "Pilih foto")
+                  try {
+                      val dir = File(cacheDir, "photos")
+                      dir.mkdirs()
+                      val file = File.createTempFile("bukti_", ".jpg", dir)
+                      val uri = FileProvider.getUriForFile(this, packageName + ".fileprovider", file)
+                      cameraUri = uri
+                      val camera = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                          putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                          addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                      }
+                      chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(camera))
+                  } catch (e: Exception) {
+                      cameraUri = null
+                  }
+                  try {
+                      fileLauncher.launch(chooser)
+                  } catch (e: Exception) {
+                      fileCallback?.onReceiveValue(null)
+                      fileCallback = null
+                  }
+              }
+
+              private fun startMonitor() {
+                  try {
+                      ContextCompat.startForegroundService(this, Intent(this, MonitorService::class.java))
+                  } catch (e: Exception) {
+                      // abaikan
+                  }
+              }
+
+              // Minta izin satu per satu: notifikasi -> admin perangkat (untuk kunci layar) -> hemat baterai.
+              private fun setupStep() {
+                  val p = Config.prefs(this)
+
+                  if (Build.VERSION.SDK_INT >= 33 &&
+                      checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+                      !p.getBoolean("askedNotif", false)
+                  ) {
+                      p.edit().putBoolean("askedNotif", true).apply()
+                      notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                      return
+                  }
+
+                  val dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
+                  val admin = ComponentName(this, AdminReceiver::class.java)
+                  val isChildMode = (p.getString("mode", "child") ?: "child") == "child"
+                  if (isChildMode && !dpm.isAdminActive(admin) && !p.getBoolean("askedAdmin", false)) {
+                      p.edit().putBoolean("askedAdmin", true).apply()
+                      val i = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+                          .putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin)
+                          .putExtra(
+                              DevicePolicyManager.EXTRA_ADD_EXPLANATION,
+                              "Diperlukan agar HP bisa dikunci otomatis saat misi belum selesai."
+                          )
+                      stepLauncher.launch(i)
+                      return
+                  }
+
+                  val pm = getSystemService(POWER_SERVICE) as PowerManager
+                  if (!pm.isIgnoringBatteryOptimizations(packageName) && !p.getBoolean("askedBattery", false)) {
+                      p.edit().putBoolean("askedBattery", true).apply()
+                      stepLauncher.launch(
+                          Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + packageName))
+                      )
+                  }
+              }
+
+              inner class Bridge {
+                  @JavascriptInterface
+                  fun isNative(): Boolean = true
+
+                  // Dipanggil website setelah anak login.
+                  @JavascriptInterface
+                  fun registerChild(childId: String, refreshToken: String, apiKey: String) {
+                      if (childId.isEmpty() || refreshToken.isEmpty() || apiKey.isEmpty()) return
+                      Config.prefs(this@MainActivity).edit()
+                          .putString("mode", "child")
+                          .putString("childId", childId)
+                          .putString("refreshToken", refreshToken)
+                          .putString("apiKey", apiKey)
+                          .apply()
+                      runOnUiThread {
+                          startMonitor()
+                          setupStep()
+                      }
+                  }
+
+                  // Dipanggil website saat orang tua (admin) login: HP ini jadi HP orang tua
+                  // (dapat notifikasi kalau HP anak terkunci) dan pemantauan anak di HP ini dihentikan.
+                  @JavascriptInterface
+                  fun registerAdmin(refreshToken: String, apiKey: String) {
+                      if (refreshToken.isEmpty() || apiKey.isEmpty()) return
+                      val p = Config.prefs(this@MainActivity)
+                      val ed = p.edit()
+                      if (p.getString("mode", "") != "admin") ed.clear()
+                      ed.putString("mode", "admin")
+                          .putString("refreshToken", refreshToken)
+                          .putString("apiKey", apiKey)
+                          .apply()
+                      runOnUiThread {
+                          startMonitor()
+                          setupStep()
+                      }
+                  }
+              }
+          }
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main/java/com/flareno/jurnal
+          cat > android-app/app/src/main/java/com/flareno/jurnal/MonitorService.kt <<'FLARENO_EOF'
+          package com.flareno.jurnal
+
+          import android.app.KeyguardManager
+          import android.app.Service
+          import android.app.admin.DevicePolicyManager
+          import android.content.BroadcastReceiver
+          import android.content.ComponentName
+          import android.content.Context
+          import android.content.Intent
+          import android.content.IntentFilter
+          import android.content.SharedPreferences
+          import android.content.pm.ServiceInfo
+          import android.os.Handler
+          import android.os.IBinder
+          import android.os.Looper
+          import android.os.PowerManager
+          import androidx.core.app.ServiceCompat
+          import androidx.core.content.ContextCompat
+          import java.util.Calendar
+
+          class Pending(val id: String, val title: String, val time: String, val diff: Int, val submitted: Boolean)
+
+          // Berjalan terus di latar belakang (foreground service).
+          //
+          // MODE ANAK (cek tiap 30 detik):
+          //  - Pengingat 15 menit sebelum jam misi + "Waktunya!" saat jam tiba
+          //  - Misi telat: notifikasi tiap 5 menit
+          //  - Telat 15 menit -> HP TERKUNCI otomatis. Terbuka kalau orang tua menekan "Buka Kunci"
+          //    atau foto bukti sudah DISETUJUI orang tua.
+          //  - Mode Kirim Bukti: saat terkunci, aplikasi Flareno tetap boleh dibuka (10 detik setelah
+          //    layar dibuka) supaya anak bisa foto & kirim bukti. Keluar dari Flareno -> terkunci lagi.
+          //  - Status kunci dilaporkan ke Firestore supaya orang tua bisa melihatnya.
+          //
+          // MODE ORANG TUA:
+          //  - Notifikasi + tombol "Buka Kunci" saat HP anak terkunci otomatis.
+          class MonitorService : Service() {
+
+              companion object {
+                  const val LOCK_AFTER_MIN = 15
+                  const val LATE_STEP_MIN = 5
+                  const val MAX_LATE_MIN = 120
+                  const val GRACE_MS = 10000L
+              }
+
+              @Volatile private var running = false
+              @Volatile private var lockActive = false
+              private var userPresentReceiver: BroadcastReceiver? = null
+              private val handler = Handler(Looper.getMainLooper())
+
+              // Tiap 2 detik: kalau HP sedang terkunci-secara-aturan, layar menyala & sudah dibuka,
+              // dan yang tampil BUKAN Flareno -> kunci lagi.
+              private val ticker = object : Runnable {
+                  override fun run() {
+                      if (!running) return
+                      if (lockActive) {
+                          val now = System.currentTimeMillis()
+                          val allowed = Config.appForeground || now < Config.keepUntil || now < Config.graceUntil
+                          if (!allowed) lockIfScreenOpen()
+                      }
+                      handler.postDelayed(this, 2000L)
+                  }
+              }
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onCreate() {
+                  super.onCreate()
+                  Notifier.createChannels(this)
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  if (!Config.isMonitoring(this)) {
+                      stopSelf()
+                      return START_NOT_STICKY
+                  }
+                  ServiceCompat.startForeground(
+                      this, 1, Notifier.serviceNotification(this),
+                      ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                  )
+                  // Kalau sebelumnya sudah terkunci otomatis (mis. HP restart), langsung aktifkan lagi.
+                  if (Config.prefs(this).getBoolean("autoLocked", false)) lockActive = true
+                  if (!running) {
+                      running = true
+                      registerUserPresent()
+                      handler.post(ticker)
+                      val t = Thread { loop() }
+                      t.isDaemon = true
+                      t.start()
+                  }
+                  return START_STICKY
+              }
+
+              override fun onDestroy() {
+                  running = false
+                  handler.removeCallbacksAndMessages(null)
+                  userPresentReceiver?.let {
+                      try { unregisterReceiver(it) } catch (e: Exception) { }
+                  }
+                  super.onDestroy()
+              }
+
+              private fun registerUserPresent() {
+                  val r = object : BroadcastReceiver() {
+                      override fun onReceive(context: Context, intent: Intent) {
+                          // Layar baru dibuka: beri waktu 10 detik untuk membuka Flareno.
+                          if (lockActive) Config.graceUntil = System.currentTimeMillis() + GRACE_MS
+                      }
+                  }
+                  userPresentReceiver = r
+                  ContextCompat.registerReceiver(
+                      this, r, IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_NOT_EXPORTED
+                  )
+              }
+
+              private fun lockIfScreenOpen() {
+                  try {
+                      val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                      val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+                      if (!pm.isInteractive || km.isKeyguardLocked) return
+                      val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+                      val admin = ComponentName(this, AdminReceiver::class.java)
+                      if (dpm.isAdminActive(admin)) dpm.lockNow()
+                  } catch (e: Exception) {
+                      // abaikan
+                  }
+              }
+
+              private fun pause(): Boolean {
+                  return try {
+                      Thread.sleep(30000L)
+                      true
+                  } catch (e: InterruptedException) {
+                      false
+                  }
+              }
+
+              // ---------------- MODE ORANG TUA ----------------
+              private fun adminTick(fire: Fire, prefs: SharedPreferences) {
+                  for (k in fire.listDocs("children")) {
+                      val state = k.str("lockState") ?: "open"
+                      val key = "adm_" + k.id
+                      val prev = prefs.getString(key, null)
+                      if (state != prev) {
+                          val name = k.str("name") ?: k.id
+                          if (state == "locked") {
+                              Notifier.adminLockAlert(this, k.id, name, k.str("lockReason") ?: "")
+                          } else if (prev == "locked") {
+                              Notifier.alert(this, 40 + (k.id.hashCode() and 0xFFF), "HP " + name + " dibuka 🔓", "Kunci sudah dilepas.")
+                          }
+                          prefs.edit().putString(key, state).apply()
+                      }
+                  }
+              }
+
+              // ---------------- MODE ANAK ----------------
+              private fun loop() {
+                  val prefs = Config.prefs(this)
+                  val fire = Fire(this)
+                  var lastStatus: String? = prefs.getString("lastStatus", null)
+                  var tasks: List<Doc> = emptyList()
+                  var tasksAt = 0L
+                  var logs: List<Doc> = emptyList()
+                  var logsAt = 0L
+                  var logsDate = ""
+                  var logsInit = false
+                  var hot = false
+                  val logState = HashMap<String, String>()
+                  var lastOk = System.currentTimeMillis()
+
+                  while (running) {
+                      if (!Config.isMonitoring(this)) {
+                          stopSelf()
+                          return
+                      }
+                      if (prefs.getString("mode", "child") == "admin") {
+                          try {
+                              adminTick(fire, prefs)
+                          } catch (e: Exception) {
+                              // coba lagi 30 detik lagi
+                          }
+                          lockActive = false
+                          if (!pause()) return
+                          continue
+                      }
+
+                      try {
+                          val childId = prefs.getString("childId", "") ?: ""
+                          val now = System.currentTimeMillis()
+                          val today = Config.todayStr()
+
+                          // 1) Data anak: status HP manual + penghitung "buka kunci" dari orang tua
+                          val child = fire.getDoc("children", childId)
+                          lastOk = now
+                          val status = child.str("hpStatus") ?: "aktif"
+                          val counter = child.int("unlockCounter") ?: 0L
+                          val manualLock = status == "terkunci" || status == "habis"
+                          if (status != lastStatus) {
+                              if (lastStatus != null) {
+                                  Notifier.alert(this, 10, "Status HP berubah", Config.statusText(status))
+                              }
+                              lastStatus = status
+                              prefs.edit().putString("lastStatus", status).apply()
+                          }
+
+                          // 2) Daftar misi (tiap 10 menit)
+                          if (now - tasksAt > 600000L) {
+                              tasks = fire.query("tasks", listOf(Pair("childId", childId)))
+                              tasksAt = now
+                          }
+
+                          // 3) Log hari ini. Dicek lebih sering kalau ada misi yang dekat/telat
+                          //    atau ada bukti yang menunggu persetujuan.
+                          val waiting = logs.any { it.str("status") == "submitted" }
+                          val stale = now - logsAt > 300000L || ((waiting || hot) && now - logsAt > 25000L)
+                          if (stale || logsDate != today) {
+                              if (logsDate != today) {
+                                  logState.clear()
+                                  logsInit = false
+                              }
+                              logs = fire.query("logs", listOf(Pair("childId", childId), Pair("date", today)))
+                              logsAt = now
+                              logsDate = today
+                              for (l in logs) {
+                                  val st = l.str("status") ?: continue
+                                  val prev = logState[l.id]
+                                  if (logsInit && prev != null && prev != st) {
+                                      val title = tasks.firstOrNull { it.id == l.str("taskId") }?.str("title") ?: "Misi"
+                                      val nid = 20 + (l.id.hashCode() and 0xFFFF)
+                                      if (st == "approved") {
+                                          Notifier.alert(this, nid, "Misi selesai! 🎉", title + " disetujui. XP bertambah!")
+                                      } else if (st == "rejected") {
+                                          Notifier.alert(this, nid, "Bukti ditolak", title + " perlu dikirim ulang.")
+                                      }
+                                  }
+                                  logState[l.id] = st
+                              }
+                              logsInit = true
+                          }
+
+                          // 4) Misi hari ini yang BELUM DISETUJUI
+                          val nowMin = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
+                          val pending = ArrayList<Pending>()
+                          for (t in tasks) {
+                              if (t.bool("active") != true) continue
+                              val first = t.str("firstEligibleDate")
+                              if (first != null && today < first) continue
+                              val time = t.str("time") ?: continue
+                              val parts = time.split(":")
+                              val hh = parts.getOrNull(0)?.toIntOrNull() ?: continue
+                              val mm = parts.getOrNull(1)?.toIntOrNull() ?: continue
+                              val st = logs.firstOrNull { it.str("taskId") == t.id }?.str("status")
+                              if (st == "approved") continue
+                              pending.add(Pending(t.id, t.str("title") ?: "Misi", time, hh * 60 + mm - nowMin, st == "submitted"))
+                          }
+                          hot = pending.any { it.diff <= LOCK_AFTER_MIN }
+                          val overdueIds = pending.filter { it.diff < 0 }.map { it.id }
+
+                          val notified = prefs.getStringSet("notified_" + today, emptySet())!!.toMutableSet()
+                          val exempt = prefs.getStringSet("exempt_" + today, emptySet())!!.toMutableSet()
+                          var changed = false
+
+                          // 5) Kunci otomatis: buka lagi kalau orang tua mengizinkan / foto sudah disetujui
+                          var autoLocked = prefs.getBoolean("autoLocked", false)
+                          if (autoLocked) {
+                              val baseCounter = prefs.getLong("lockCounter", 0L)
+                              val lockTasks = prefs.getStringSet("lockTasks", emptySet())!!
+                              var release = ""
+                              if (counter != baseCounter) {
+                                  exempt.addAll(overdueIds)
+                                  changed = true
+                                  release = "Orang tua sudah mengizinkan. Semangat lanjut misinya!"
+                              } else if (lockTasks.none { overdueIds.contains(it) }) {
+                                  release = "Misi sudah disetujui orang tua."
+                              }
+                              if (release.isNotEmpty()) {
+                                  autoLocked = false
+                                  prefs.edit().putBoolean("autoLocked", false).remove("lockTasks").apply()
+                                  Notifier.alert(this, 11, "HP dibuka 🔓", release)
+                              }
+                          }
+
+                          // 6) Pengingat & notifikasi telat (tiap 5 menit). Yang sudah dikirim buktinya dilewati.
+                          for (p in pending) {
+                              if (p.submitted) continue
+                              val nid = 100 + (p.id.hashCode() and 0xFFFF)
+                              if (p.diff in 1..15) {
+                                  if (notified.add("r_" + p.id)) {
+                                      changed = true
+                                      Notifier.alert(this, nid, "Misi sebentar lagi ⏰", p.title + " — jam " + p.time)
+                                  }
+                              } else if (p.diff in -(LATE_STEP_MIN - 1)..0) {
+                                  if (notified.add("n_" + p.id)) {
+                                      changed = true
+                                      Notifier.alert(this, nid, "Waktunya misi! 🔥", p.title + " — jam " + p.time)
+                                  }
+                              } else if (p.diff <= -LATE_STEP_MIN && -p.diff <= MAX_LATE_MIN && !exempt.contains(p.id)) {
+                                  val k = (-p.diff) / LATE_STEP_MIN
+                                  if (notified.add("l_" + p.id + "_" + k)) {
+                                      changed = true
+                                      val minutes = k * LATE_STEP_MIN
+                                      val text = if (minutes >= LOCK_AFTER_MIN) {
+                                          p.title + " terlambat " + minutes + " menit. HP dikunci, minta izin orang tua untuk membuka."
+                                      } else {
+                                          p.title + " terlambat " + minutes + " menit. Selesaikan sebelum " + LOCK_AFTER_MIN + " menit atau HP akan terkunci!"
+                                      }
+                                      Notifier.alert(this, nid, "Misi terlambat ⚠️", text)
+                                  }
+                              }
+                          }
+
+                          // 7) Mulai kunci otomatis kalau ada misi telat >= 15 menit (dan belum ada bukti terkirim)
+                          if (!autoLocked) {
+                              val starters = pending.filter {
+                                  !it.submitted && -it.diff >= LOCK_AFTER_MIN && -it.diff <= MAX_LATE_MIN && !exempt.contains(it.id)
+                              }
+                              if (starters.isNotEmpty()) {
+                                  autoLocked = true
+                                  val reason = starters[0].title + " terlambat " + LOCK_AFTER_MIN + " menit"
+                                  prefs.edit()
+                                      .putBoolean("autoLocked", true)
+                                      .putLong("lockCounter", counter)
+                                      .putStringSet("lockTasks", starters.map { it.id }.toSet())
+                                      .putString("lockReason", reason)
+                                      .putLong("lockSince", now)
+                                      .apply()
+                                  Notifier.alert(this, 11, "HP dikunci 🔒", reason + ". Kirim bukti lewat Flareno atau minta izin orang tua.")
+                              }
+                          }
+
+                          if (changed) {
+                              val ed = prefs.edit()
+                              for (k in prefs.all.keys) {
+                                  if ((k.startsWith("notified_") && k != "notified_" + today) ||
+                                      (k.startsWith("exempt_") && k != "exempt_" + today)
+                                  ) ed.remove(k)
+                              }
+                              ed.putStringSet("notified_" + today, notified)
+                              ed.putStringSet("exempt_" + today, exempt)
+                              ed.apply()
+                          }
+
+                          lockActive = manualLock || autoLocked
+
+                          // 8) Laporkan status kunci ke Firestore (untuk dashboard & notifikasi orang tua)
+                          try {
+                              val desired = if (autoLocked) "locked" else "open"
+                              if (desired != (prefs.getString("pubState", "open") ?: "open")) {
+                                  fire.setLockInfo(
+                                      childId, autoLocked,
+                                      if (autoLocked) (prefs.getString("lockReason", "") ?: "") else "",
+                                      prefs.getLong("lockSince", now)
+                                  )
+                                  prefs.edit().putString("pubState", desired).apply()
+                              }
+                          } catch (e: Exception) {
+                              // aturan Firestore belum diperbarui / offline: coba lagi nanti
+                          }
+                      } catch (e: InterruptedException) {
+                          return
+                      } catch (e: Exception) {
+                          // Gagal (mis. tidak ada internet). Kunci tetap aktif; kalau offline > 1 jam, dilepas sementara.
+                          if (System.currentTimeMillis() - lastOk > 3600000L) lockActive = false
+                      }
+                      if (!pause()) return
+                  }
+              }
+          }
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main/java/com/flareno/jurnal
+          cat > android-app/app/src/main/java/com/flareno/jurnal/Notifier.kt <<'FLARENO_EOF'
+          package com.flareno.jurnal
+
+          import android.app.Notification
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.content.Context
+          import android.content.Intent
+          import android.os.Build
+          import androidx.core.app.NotificationCompat
+          import androidx.core.app.NotificationManagerCompat
+
+          object Notifier {
+              private const val CH_SERVICE = "service"
+              private const val CH_ALERT = "alert"
+
+              fun createChannels(c: Context) {
+                  if (Build.VERSION.SDK_INT >= 26) {
+                      val nm = c.getSystemService(NotificationManager::class.java)
+                      nm.createNotificationChannel(
+                          NotificationChannel(CH_SERVICE, "Layanan Flareno", NotificationManager.IMPORTANCE_LOW)
+                      )
+                      nm.createNotificationChannel(
+                          NotificationChannel(CH_ALERT, "Pengingat Misi", NotificationManager.IMPORTANCE_HIGH)
+                      )
+                  }
+              }
+
+              private fun openAppIntent(c: Context): PendingIntent =
+                  PendingIntent.getActivity(
+                      c, 0, Intent(c, MainActivity::class.java),
+                      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                  )
+
+              fun serviceNotification(c: Context): Notification =
+                  NotificationCompat.Builder(c, CH_SERVICE)
+                      .setSmallIcon(R.drawable.ic_stat)
+                      .setContentTitle("Flareno Jurnal aktif")
+                      .setContentText("Memantau misi dan status HP")
+                      .setOngoing(true)
+                      .setContentIntent(openAppIntent(c))
+                      .build()
+
+              fun alert(c: Context, id: Int, title: String, text: String) {
+                  try {
+                      val n = NotificationCompat.Builder(c, CH_ALERT)
+                          .setSmallIcon(R.drawable.ic_stat)
+                          .setContentTitle(title)
+                          .setContentText(text)
+                          .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                          .setAutoCancel(true)
+                          .setPriority(NotificationCompat.PRIORITY_HIGH)
+                          .setContentIntent(openAppIntent(c))
+                          .build()
+                      NotificationManagerCompat.from(c).notify(id, n)
+                  } catch (e: SecurityException) {
+                      // izin notifikasi belum diberikan
+                  }
+              }
+              // Notifikasi untuk orang tua: HP anak terkunci, dengan tombol "Buka Kunci".
+              fun adminLockAlert(c: Context, childId: String, name: String, reason: String) {
+                  try {
+                      val nid = 30 + (childId.hashCode() and 0xFFFF)
+                      val unlock = PendingIntent.getBroadcast(
+                          c, nid,
+                          Intent(c, UnlockReceiver::class.java).putExtra("childId", childId).putExtra("nid", nid),
+                          PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                      )
+                      val text = if (reason.isEmpty()) "HP " + name + " terkunci." else "HP " + name + " terkunci: " + reason
+                      val n = NotificationCompat.Builder(c, CH_ALERT)
+                          .setSmallIcon(R.drawable.ic_stat)
+                          .setContentTitle("HP " + name + " terkunci 🔒")
+                          .setContentText(text)
+                          .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                          .setAutoCancel(true)
+                          .setPriority(NotificationCompat.PRIORITY_HIGH)
+                          .setContentIntent(openAppIntent(c))
+                          .addAction(0, "🔓 Buka Kunci", unlock)
+                          .build()
+                      NotificationManagerCompat.from(c).notify(nid, n)
+                  } catch (e: SecurityException) {
+                      // izin notifikasi belum diberikan
+                  }
+              }
+          }
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main/java/com/flareno/jurnal
+          cat > android-app/app/src/main/java/com/flareno/jurnal/UnlockReceiver.kt <<'FLARENO_EOF'
+          package com.flareno.jurnal
+
+          import android.content.BroadcastReceiver
+          import android.content.Context
+          import android.content.Intent
+          import androidx.core.app.NotificationManagerCompat
+
+          // Dipanggil saat orang tua menekan tombol "Buka Kunci" di notifikasi.
+          class UnlockReceiver : BroadcastReceiver() {
+              override fun onReceive(context: Context, intent: Intent) {
+                  val childId = intent.getStringExtra("childId") ?: return
+                  val nid = intent.getIntExtra("nid", 0)
+                  val app = context.applicationContext
+                  val pending = goAsync()
+                  Thread {
+                      try {
+                          Fire(app).incrementUnlock(childId)
+                          NotificationManagerCompat.from(app).cancel(nid)
+                          Notifier.alert(app, 12, "Izin terkirim 🔓", "HP akan terbuka dalam sekitar 30 detik.")
+                      } catch (e: Exception) {
+                          Notifier.alert(app, 12, "Gagal mengirim izin", "Coba lagi dari dashboard.")
+                      } finally {
+                          pending.finish()
+                      }
+                  }.start()
+              }
+          }
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main/res/drawable
+          cat > android-app/app/src/main/res/drawable/ic_stat.xml <<'FLARENO_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="24dp"
+              android:height="24dp"
+              android:viewportWidth="24"
+              android:viewportHeight="24">
+              <path
+                  android:fillColor="#FFFFFFFF"
+                  android:pathData="M12,2l3.09,6.26L22,9.27l-5,4.87 1.18,6.88L12,17.77l-6.18,3.25L7,14.14 2,9.27l6.91,-1.01L12,2z" />
+          </vector>
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main/res/values
+          cat > android-app/app/src/main/res/values/themes.xml <<'FLARENO_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+                  <item name="android:statusBarColor">#1E90FF</item>
+                  <item name="android:windowBackground">#FFFFFF</item>
+              </style>
+          </resources>
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main/res/xml
+          cat > android-app/app/src/main/res/xml/device_admin.xml <<'FLARENO_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-policies>
+                  <force-lock />
+              </uses-policies>
+          </device-admin>
+          FLARENO_EOF
+          mkdir -p android-app/app/src/main/res/xml
+          cat > android-app/app/src/main/res/xml/file_paths.xml <<'FLARENO_EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths>
+              <cache-path name="photos" path="photos/" />
+          </paths>
+          FLARENO_EOF
+          mkdir -p android-app
+          cat > android-app/build.gradle.kts <<'FLARENO_EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          FLARENO_EOF
+          mkdir -p android-app
+          cat > android-app/gradle.properties <<'FLARENO_EOF'
+          org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.nonTransitiveRClass=true
+          kotlin.code.style=official
+          FLARENO_EOF
+          mkdir -p android-app
+          cat > android-app/settings.gradle.kts <<'FLARENO_EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "FlarenoJurnal"
+          include(":app")
+          FLARENO_EOF
+          echo "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" | base64 -d > android-app/flareno.keystore
+
+      - name: Pasang icon
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y imagemagick
+          SRC=assets/icons/icon-512.png
+          R=android-app/app/src/main/res
+          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            name=${d%%:*}; px=${d##*:}
+            fg=$((px*108/48)); inner=$((fg*62/100))
+            dir=$R/mipmap-$name
+            mkdir -p $dir
+            convert $SRC -resize ${px}x${px} $dir/ic_launcher.png
+            cp $dir/ic_launcher.png $dir/ic_launcher_round.png
+            convert $SRC -resize ${inner}x${inner} -background none -gravity center -extent ${fg}x${fg} $dir/ic_launcher_foreground.png
+          done
+          mkdir -p $R/mipmap-anydpi-v26
+          cat > $R/mipmap-anydpi-v26/ic_launcher.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          EOF
+          cp $R/mipmap-anydpi-v26/ic_launcher.xml $R/mipmap-anydpi-v26/ic_launcher_round.xml
+          cat > $R/values/colors.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_launcher_background">#1CB5FD</color>
+          </resources>
+          EOF
+
+      - name: Build APK
+        working-directory: android-app
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Flareno-Jurnal-APK
+          path: android-app/app/build/outputs/apk/debug/app-debug.apk

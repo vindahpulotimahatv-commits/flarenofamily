@@ -1224,7 +1224,9 @@ jobs:
 
       - name: Pasang icon
         run: |
-          SRC=assets/img/icons/icon-512.png
+          sudo apt-get update -y
+          sudo apt-get install -y imagemagick
+          SRC=assets/icons/icon-512.png
           R=android-app/app/src/main/res
           for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
             name=${d%%:*}; px=${d##*:}

@@ -22,6 +22,28 @@ import {
   getDoc
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+// ---------- Jembatan ke aplikasi Android (APK) ----------
+// Di browser biasa window.FlarenoNative tidak ada, jadi fungsi ini tidak melakukan apa-apa.
+function nativeRegisterChild(user, childId) {
+  try {
+    if (window.FlarenoNative && user.refreshToken) {
+      window.FlarenoNative.registerChild(childId, user.refreshToken, auth.app.options.apiKey);
+    }
+  } catch (e) {
+    console.warn("native bridge:", e);
+  }
+}
+
+function nativeRegisterAdmin(user) {
+  try {
+    if (window.FlarenoNative && user.refreshToken) {
+      window.FlarenoNative.registerAdmin(user.refreshToken, auth.app.options.apiKey);
+    }
+  } catch (e) {
+    console.warn("native bridge:", e);
+  }
+}
+
 // Ambil data role user yang sedang login dari Firestore
 export async function getUserRole(uid) {
   const snap = await getDoc(doc(db, "users", uid));
@@ -81,6 +103,11 @@ export function guardPage(requiredRole, onReady) {
       window.location.href = "index.html";
       return;
     }
+
+    // Anak login di APK -> aktifkan pemantauan (kunci HP + notifikasi).
+    // Orang tua login di APK -> HP itu jadi HP orang tua (notifikasi kalau HP anak terkunci).
+    if (isChild) nativeRegisterChild(user, userData.childId);
+    if (isAdmin) nativeRegisterAdmin(user);
 
     onReady(user, userData);
   });

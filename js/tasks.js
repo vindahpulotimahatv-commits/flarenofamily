@@ -31,7 +31,7 @@
 import { db, IMGBB_API_KEY } from "./firebase.js";
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
-  query, where, onSnapshot, serverTimestamp, runTransaction
+  query, where, onSnapshot, serverTimestamp, runTransaction, increment
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   todayStr, yesterdayStr, computeLevel, timeStrToDateToday,
@@ -394,6 +394,12 @@ async function isFullyCompleteForDate(childId, date, justApprovedTaskId) {
 
 export async function updateChildHpStatus(childId, hpStatus) {
   await updateDoc(doc(db, "children", childId), { hpStatus });
+}
+
+// Orang tua menekan "Buka Kunci HP": aplikasi Android di HP anak membaca angka ini,
+// dan kalau berubah berarti kunci otomatis (misi telat 15 menit) boleh dibuka.
+export function unlockChildPhone(childId) {
+  return updateDoc(doc(db, "children", childId), { unlockCounter: increment(1) });
 }
 
 export function updateChildField(childId, field, value) {

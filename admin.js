@@ -5,11 +5,11 @@
 // -----------------------------------------------------------
 
 import { db } from "./firebase.js";
-import { collection, doc, getDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { formatRupiah, computeLevel, hpStatusLabel, todayStr, formatTanggal, CATEGORY_META, DEFAULT_ALLOWANCE } from "./app.js";
 import {
   createTask, updateTask, deleteTask, listenTasksForChild,
-  listenPendingLogs, approveLog, rejectLog, updateChildHpStatus, updateChildField,
+  listenPendingLogs, approveLog, rejectLog, updateChildHpStatus, updateChildField, unlockChildPhone,
   ensureSaldoUpToDate, listenSaldoHistory
 } from "./tasks.js";
 
@@ -30,7 +30,20 @@ export async function loadChildren() {
   unsubscribers.forEach((fn) => fn());
   unsubscribers.length = 0;
 
-  const snap = await getDocs(collection(db, "children"));
+  // Approval queue (satu untuk semua anak) — dipasang duluan supaya tetap
+  // jalan meski koleksi 'children' kosong atau gagal dimuat.
+  const queueUnsub = listenPendingLogs((logs) => {
+    renderApprovalQueue(logs);
+  });
+  unsubscribers.push(queueUnsub);
+
+  let snap;
+  try {
+    snap = await getDocs(collection(db, "children"));
+  } catch (err) {
+    grid.innerHTML = `<p style="color:#dc2626;font-weight:700;">⚠️ Gagal memuat data anak: ${err.message}</p>`;
+    return;
+  }
 
   if (snap.empty) {
     grid.innerHTML = "<p>Belum ada data anak. Tambahkan dokumen di collection 'children' pada Firestore.</p>";
@@ -39,6 +52,8 @@ export async function loadChildren() {
 
   for (const docSnap of snap.docs) {
     const childId = docSnap.id;
+    let card;
+    try {
 
     // Pastikan saldo sudah up to date (tutup buku otomatis untuk hari-hari
     // yang jamnya sudah lewat 22:00 dan belum dihitung).
@@ -48,7 +63,7 @@ export async function loadChildren() {
     const level = computeLevel(data.xp ?? 0);
     const allowance = data.dailyAllowance ?? DEFAULT_ALLOWANCE[childId] ?? 0;
 
-    const card = document.createElement("div");
+    card = document.createElement("div");
     card.className = "child-card";
     card.innerHTML = `
       <h3>${data.emoji || "🧒"} ${data.name || childId}</h3>
@@ -66,6 +81,9 @@ export async function loadChildren() {
       <select class="hp-select" data-child="${childId}">
         ${HP_OPTIONS.map((o) => `<option value="${o}" ${o === (data.hpStatus || "aktif") ? "selected" : ""}>${hpStatusLabel(o)}</option>`).join("")}
       </select>
+      <div class="lock-banner" data-child="${childId}" style="display:none;margin-top:8px;padding:10px;border-radius:10px;background:#fee2e2;color:#991b1b;font-weight:700;"></div>
+      <button type="button" class="btn-unlock-hp" data-child="${childId}" style="margin-top:8px;width:100%;padding:10px;border:0;border-radius:10px;background:#16a34a;color:#fff;font-weight:700;cursor:pointer;">🔓 Buka Kunci HP (izinkan)</button>
+      <p class="muted" style="font-size:11px;margin-top:2px;">Kalau misi telat 15 menit, HP anak terkunci otomatis. Tekan tombol ini untuk mengizinkan HP dibuka lagi.</p>
 
       <div class="task-section">
         <div class="task-section-head">
@@ -109,6 +127,35 @@ export async function loadChildren() {
       await updateChildHpStatus(childId, e.target.value);
     });
 
+    // Status kunci otomatis dari HP anak (real-time)
+    const lockUnsub = onSnapshot(doc(db, "children", childId), (s) => {
+      const d = s.data() || {};
+      const banner = card.querySelector(".lock-banner");
+      if (!banner) return;
+      if (d.lockState === "locked") {
+        banner.style.display = "block";
+        banner.textContent = "🔒 HP terkunci otomatis — " + (d.lockReason || "misi terlambat");
+      } else {
+        banner.style.display = "none";
+      }
+    });
+    unsubscribers.push(lockUnsub);
+
+    // Buka kunci otomatis (misi telat 15 menit) di HP anak
+    card.querySelector(".btn-unlock-hp").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      if (!confirm("Izinkan HP anak dibuka lagi?")) return;
+      btn.disabled = true;
+      try {
+        await unlockChildPhone(childId);
+        btn.textContent = "✅ Izin terkirim (HP terbuka dalam ±30 detik)";
+      } catch (err) {
+        console.error(err);
+        btn.textContent = "❌ Gagal, coba lagi";
+      }
+      setTimeout(() => { btn.disabled = false; btn.textContent = "🔓 Buka Kunci HP (izinkan)"; }, 4000);
+    });
+
     // Kelas (opsional, hanya untuk ditampilkan di profil anak)
     card.querySelector(".kelas-input").addEventListener("blur", async (e) => {
       await updateChildField(childId, "kelas", e.target.value.trim());
@@ -148,13 +195,15 @@ export async function loadChildren() {
       renderDailyReport(reportEl, history);
     });
     unsubscribers.push(reportUnsub);
-  }
 
-  // Approval queue (satu untuk semua anak)
-  const queueUnsub = listenPendingLogs((logs) => {
-    renderApprovalQueue(logs);
-  });
-  unsubscribers.push(queueUnsub);
+    } catch (err) {
+      const errCard = document.createElement("div");
+      errCard.className = "child-card";
+      errCard.innerHTML = `<p style="color:#dc2626;font-weight:700;">⚠️ Gagal memuat data untuk "${childId}": ${err.message}</p>`;
+      grid.appendChild(errCard);
+      console.error(`loadChildren: error processing child ${childId}`, err);
+    }
+  }
 }
 
 function renderTaskList(listEl, tasks) {
@@ -248,7 +297,8 @@ function renderApprovalQueue(logs) {
     const item = document.createElement("div");
     item.className = "approval-item";
     item.innerHTML = `
-      <img src="${log.photoUrl}" alt="bukti tugas" class="approval-photo">
+      <img src="${log.photoUrl}" alt="bukti tugas" class="approval-photo" loading="lazy"
+           onerror="this.outerHTML='&lt;a href=&quot;${log.photoUrl}&quot; target=&quot;_blank&quot; rel=&quot;noopener&quot; class=&quot;approval-photo-broken&quot;&gt;⚠️ Foto gagal dimuat<br><small>🔗 Tap untuk buka link foto langsung</small>&lt;/a&gt;'">
       <div class="approval-info">
         <p><b>${log.childId}</b> — tugas: ${log.taskTitle || log.taskId}</p>
         <p class="muted">Tanggal: ${log.date} &nbsp;•&nbsp; +${log.xpReward ?? 0} XP</p>

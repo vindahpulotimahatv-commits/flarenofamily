@@ -70,6 +70,26 @@ export async function login(email, password) {
   }
 }
 
+// Dipakai di index.html (halaman login): kalau ternyata sudah ada sesi
+// login yang tersimpan (Firebase Auth otomatis menyimpan sesi, TIDAK pernah
+// logout sendiri hanya karena aplikasi ditutup/di-kill), langsung lempar ke
+// dashboard yang sesuai tanpa perlu login ulang. Kalau memang belum ada
+// sesi, tampilkan form login seperti biasa.
+export function redirectIfLoggedIn(onNoSession) {
+  onAuthStateChanged(auth, async (user) => {
+    if (!user) {
+      onNoSession?.();
+      return;
+    }
+    const userData = await getUserRole(user.uid);
+    if (!userData) {
+      onNoSession?.();
+      return;
+    }
+    window.location.href = userData.role === "admin" ? "admin.html" : "child.html";
+  });
+}
+
 export function logout() {
   signOut(auth).then(() => {
     window.location.href = "index.html";

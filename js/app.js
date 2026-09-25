@@ -12,19 +12,19 @@ export function formatRupiah(angka) {
 // Jatah default per anak kalau field "dailyAllowance" belum diisi di Firestore.
 export const DEFAULT_ALLOWANCE = { khanaya: 25000, asensio: 20000 };
 
-// Potongan karena TELAT kirim bukti: Rp500 tiap kelipatan 5 menit telat,
-// maksimal Rp1.500 (batas maksimal ini tercapai di menit ke-15 dan seterusnya).
-// Contoh: telat 1-5 menit = -Rp500, telat 6-10 menit = -Rp1.000, telat 11-15
-// menit (atau lebih) = -Rp1.500.
-export function lateDeduction(lateMinutes) {
-  if (!lateMinutes || lateMinutes <= 0) return 0;
-  const steps = Math.min(3, Math.ceil(lateMinutes / 5));
-  return steps * 500;
-}
+// Potongan saldo TIDAK lagi dihitung otomatis. Orang tua mengisinya MANUAL
+// lewat dashboard admin (nominal + alasan, per tanggal). Saat "tutup buku",
+// total potongan manual di tanggal itu dikurangkan dari jatah dasar.
 
-// Potongan karena SAMA SEKALI TIDAK dikerjakan (tidak ada bukti terkirim
-// sampai hari itu berakhir): flat Rp1.500 per tugas.
-export const MISSED_TASK_DEDUCTION = 1500;
+// Batas telat: kalau sudah lewat 60 menit dari jam misi dan belum ada bukti,
+// misi dianggap TIDAK DIKERJAKAN dan anak lanjut ke misi berikutnya.
+export const LATE_LIMIT_MIN = 60;
+
+// true kalau misi (jam "HH:MM" hari ini) sudah telat >= 1 jam.
+export function isPastLateLimit(timeStr) {
+  const target = timeStrToDateToday(timeStr);
+  return Date.now() - target.getTime() >= LATE_LIMIT_MIN * 60000;
+}
 
 // Waktu "tutup buku" evaluasi harian: jam 22:00. Setelah jam ini, tugas hari
 // itu yang belum ada buktinya dianggap "tidak dikerjakan" dan dipakai untuk

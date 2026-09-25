@@ -35,12 +35,13 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import {
   todayStr, yesterdayStr, computeLevel, timeStrToDateToday,
-  DEFAULT_ALLOWANCE, lateDeduction, MISSED_TASK_DEDUCTION,
+  DEFAULT_ALLOWANCE, LATE_LIMIT_MIN, isPastLateLimit,
   SALDO_CLOSING_HOUR, addDaysToDateStr, computeFirstEligibleDate,
   isTaskEligibleOnDate
 } from "./app.js";
 
 const tasksCol = collection(db, "tasks");
+const potonganCol = collection(db, "potongan");
 const logsCol = collection(db, "logs");
 
 export function logIdFor(taskId, date) {
@@ -142,25 +143,29 @@ async function closeSaldoDay(childId, date, dailyAllowance) {
   const logsForDate = new Map();
   lSnap.forEach((d) => { const l = d.data(); if (l.date === date) logsForDate.set(l.taskId, l); });
 
-  // taskReport = rincian PER TUGAS untuk hari ini: dikerjakan tepat waktu,
-  // telat, atau sama sekali tidak dikerjakan. Ini yang jadi bahan "Laporan
-  // Harian" biar orang tua bisa evaluasi apa saja yang dikerjakan/tidak.
+  // Potongan MANUAL yang diisi orang tua untuk tanggal ini.
+  const pSnap = await getDocs(query(potonganCol, where("childId", "==", childId)));
+  const manualDeductions = [];
+  pSnap.forEach((d) => {
+    const p = d.data();
+    if (p.date === date) manualDeductions.push({ amount: Number(p.amount) || 0, reason: p.reason || "" });
+  });
+
+  // taskReport = rincian PER TUGAS (tepat waktu / telat / tidak dikerjakan).
+  // Tidak ada potongan otomatis per tugas; potongan hanya dari isian manual.
   const taskReport = activeTasks.map((t) => {
     const log = logsForDate.get(t.id);
-    if (!log) {
-      return { taskId: t.id, title: t.title, status: "missed", deduction: MISSED_TASK_DEDUCTION, lateMinutes: null };
-    }
-    const deduction = log.saldoDeduction ?? 0;
+    if (!log) return { taskId: t.id, title: t.title, status: "missed", deduction: 0, lateMinutes: null };
     return {
       taskId: t.id,
       title: t.title,
-      status: deduction > 0 ? "late" : "done",
-      deduction,
+      status: (log.lateMinutes ?? 0) > 0 ? "late" : "done",
+      deduction: 0,
       lateMinutes: log.lateMinutes ?? 0
     };
   });
 
-  const totalDeduction = taskReport.reduce((sum, r) => sum + r.deduction, 0);
+  const totalDeduction = manualDeductions.reduce((sum, r) => sum + r.amount, 0);
   const missedTasks = taskReport.filter((r) => r.status === "missed").length;
   const lateTasks = taskReport.filter((r) => r.status === "late").length;
   const doneTasks = taskReport.filter((r) => r.status === "done").length;
@@ -180,6 +185,7 @@ async function closeSaldoDay(childId, date, dailyAllowance) {
     lateTasks,
     doneTasks,
     totalDeduction,
+    manualDeductions,
     saldoForNextDay,
     nextDate,
     taskReport,
@@ -231,7 +237,7 @@ export async function ensureSaldoUpToDate(childId) {
 // Hitung gambaran SEMENTARA (belum resmi disimpan) potongan hari ini, dipakai
 // untuk ditampilkan ke anak sebagai "perkiraan jajan besok" sebelum tutup
 // buku jam 22:00. tasks = daftar tugas aktif anak, logs = semua log anak.
-export function computeLiveEvaluation(tasks, logs, date, dailyAllowance) {
+export function computeLiveEvaluation(tasks, logs, date, dailyAllowance, manualDeductions = []) {
   const logsForDate = new Map();
   logs.forEach((l) => { if (l.date === date) logsForDate.set(l.taskId, l); });
 
@@ -239,21 +245,42 @@ export function computeLiveEvaluation(tasks, logs, date, dailyAllowance) {
   const items = tasks.map((t) => {
     const log = logsForDate.get(t.id);
     if (log) {
-      const deduction = log.saldoDeduction ?? 0;
-      return { task: t, status: deduction > 0 ? "telat" : "selesai", deduction };
+      return { task: t, status: (log.lateMinutes ?? 0) > 0 ? "telat" : "selesai" };
     }
     const target = timeStrToDateToday(t.time);
-    if (now.getTime() < target.getTime()) {
-      return { task: t, status: "belum-waktunya", deduction: 0 };
-    }
-    // Sudah lewat jamnya, belum ada bukti -> berisiko dianggap tidak dikerjakan
-    // kalau sampai jam 22:00 tetap tidak ada bukti.
-    return { task: t, status: "berisiko", deduction: MISSED_TASK_DEDUCTION };
+    if (now.getTime() < target.getTime()) return { task: t, status: "belum-waktunya" };
+    if (isPastLateLimit(t.time)) return { task: t, status: "tidak-dikerjakan" };
+    return { task: t, status: "berisiko" };
   });
 
-  const totalDeduction = items.reduce((sum, it) => sum + it.deduction, 0);
+  const totalDeduction = manualDeductions
+    .filter((d) => d.date === date)
+    .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
   const estimatedTomorrow = Math.max(0, dailyAllowance - totalDeduction);
   return { items, totalDeduction, estimatedTomorrow };
+}
+
+// ---------- POTONGAN MANUAL (diisi orang tua) ----------
+export async function addManualDeduction(childId, date, amount, reason) {
+  const nominal = Math.max(0, Math.round(Number(amount) || 0));
+  if (!nominal) throw new Error("Nominal potongan harus lebih dari 0.");
+  return addDoc(potonganCol, {
+    childId, date, amount: nominal, reason: (reason || "").trim(), createdAt: serverTimestamp()
+  });
+}
+
+export function deleteManualDeduction(id) {
+  return deleteDoc(doc(db, "potongan", id));
+}
+
+export function listenManualDeductions(childId, cb) {
+  const q = query(potonganCol, where("childId", "==", childId));
+  return onSnapshot(q, (snap) => {
+    const items = [];
+    snap.forEach((d) => items.push({ id: d.id, ...d.data() }));
+    items.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    cb(items);
+  });
 }
 
 // Upload foto bukti ke ImgBB (hosting gambar gratis, pengganti Firebase Storage
@@ -270,30 +297,14 @@ async function uploadPhotoToImgbb(file) {
   const formData = new FormData();
   formData.append("image", file);
 
-  // Batasi waktu tunggu 25 detik — kalau sinyal jelek, mending gagal cepat
-  // dengan pesan jelas daripada nge-hang lama di tombol "Mengirim...".
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 25000);
-
-  let res;
-  try {
-    res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
-      method: "POST",
-      body: formData,
-      signal: controller.signal
-    });
-  } catch (e) {
-    if (e.name === "AbortError") {
-      throw new Error("Koneksi terlalu lambat (lebih dari 25 detik). Coba cari sinyal/WiFi yang lebih kuat lalu ulangi.");
-    }
-    throw new Error("Tidak bisa terhubung ke internet. Cek koneksi lalu coba lagi.");
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  const res = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
+    method: "POST",
+    body: formData
+  });
 
   const json = await res.json();
   if (!res.ok || !json.success) {
-    throw new Error(json?.error?.message || "Upload foto gagal, coba lagi.");
+    throw new Error(json?.error?.message || "Upload foto ke ImgBB gagal, coba lagi.");
   }
 
   return json.data.url;
@@ -304,6 +315,10 @@ async function uploadPhotoToImgbb(file) {
 // buku jam 22:00 untuk menentukan jajan besok) — TIDAK langsung memotong
 // saldo hari ini.
 export async function submitTaskPhoto(task, childId, file) {
+  // Telat >= 1 jam = dianggap tidak dikerjakan, tidak bisa kirim bukti lagi.
+  if (isPastLateLimit(task.time)) {
+    throw new Error(`Sudah lewat ${LATE_LIMIT_MIN} menit dari jadwal, misi ini dianggap tidak dikerjakan. Lanjut ke misi berikutnya ya.`);
+  }
   await ensureSaldoUpToDate(childId); // pastikan saldo & histori sudah up to date dulu
 
   const date = todayStr();
@@ -311,7 +326,6 @@ export async function submitTaskPhoto(task, childId, file) {
 
   const target = timeStrToDateToday(task.time);
   const lateMinutes = Math.max(0, Math.floor((Date.now() - target.getTime()) / 60000));
-  const saldoDeduction = lateDeduction(lateMinutes);
 
   const logId = logIdFor(task.id, date);
   await setDoc(doc(db, "logs", logId), {
@@ -323,11 +337,10 @@ export async function submitTaskPhoto(task, childId, file) {
     photoUrl,
     xpReward: task.xpReward ?? 0,
     lateMinutes,
-    saldoDeduction,
     submittedAt: serverTimestamp()
   }, { merge: true });
 
-  return { logId, lateMinutes, saldoDeduction };
+  return { logId, lateMinutes };
 }
 
 // Live listener histori saldo (hasil tutup buku tiap hari) milik satu anak.

@@ -10,18 +10,19 @@ import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/fire
 import {
   formatRupiah, computeLevel, xpProgressInLevel, hpStatusLabel, hpStatusMessage,
   todayStr, categoryIcon, categoryLabel, formatCountdown, timeStrToDateToday,
-  formatTanggal, DEFAULT_ALLOWANCE, isTaskEligibleOnDate
+  formatTanggal, DEFAULT_ALLOWANCE, isTaskEligibleOnDate, LATE_LIMIT_MIN, isPastLateLimit
 } from "./app.js";
 import {
   listenTasksForChild, listenLogsForChild, submitTaskPhoto,
   REWARD_CATALOG, redeemReward, listenRedemptions, ensureSaldoUpToDate,
-  computeLiveEvaluation, listenSaldoHistory
+  computeLiveEvaluation, listenSaldoHistory, listenManualDeductions
 } from "./tasks.js";
 
 let childId = null;
 let childData = {};
 let currentTasks = [];
 let currentLogs = [];
+let currentDeductions = []; // potongan manual dari orang tua
 let prevLogStatus = {}; // taskId -> status sebelumnya, dipakai deteksi "baru disetujui"
 let notified = new Set(); // taskId yang sudah dapat reminder hari ini
 let activeModalTask = null;
@@ -70,6 +71,11 @@ export function startChildDashboard(childId_, userData) {
     renderSaldoHistoryList(items);
   });
 
+  listenManualDeductions(childId, (items) => {
+    currentDeductions = items;
+    renderSaldoEvaluation();
+  });
+
   renderRewards();
   setupTabs();
   setupModal();
@@ -77,6 +83,7 @@ export function startChildDashboard(childId_, userData) {
   checkReminders();
   setInterval(checkReminders, 30000);
   setInterval(tickCountdowns, 1000);
+  setInterval(renderAll, 30000); // status "tidak dikerjakan" setelah 1 jam ikut berubah tanpa reload
 
   if (typeof Notification !== "undefined" && Notification.permission === "default") {
     Notification.requestPermission();
@@ -144,12 +151,19 @@ function renderHpCard() {
   `;
 }
 
+// Misi dianggap TIDAK DIKERJAKAN kalau sudah telat >= 1 jam dan belum ada bukti
+// terkirim/disetujui. Anak langsung lanjut ke misi berikutnya.
+function isMissedTask(task, log) {
+  if (log && (log.status === "approved" || log.status === "submitted")) return false;
+  return isPastLateLimit(task.time);
+}
+
 // ---------- MISI SEKARANG (tugas terdekat yang belum selesai) ----------
 function nextActiveTask() {
   const date = todayStr();
   const candidates = currentTasks
     .map((t) => ({ task: t, log: currentLogs.find((l) => l.taskId === t.id && l.date === date) }))
-    .filter((x) => !x.log || x.log.status === "rejected");
+    .filter((x) => (!x.log || x.log.status === "rejected") && !isMissedTask(x.task, x.log));
   candidates.sort((a, b) => a.task.time.localeCompare(b.task.time));
   return candidates[0] || null;
 }
@@ -160,6 +174,18 @@ function renderMissionNow() {
   const next = nextActiveTask();
 
   if (!next) {
+    const date0 = todayStr();
+    const anyMissed = currentTasks.some((t) => isMissedTask(t, currentLogs.find((l) => l.taskId === t.id && l.date === date0)));
+    if (anyMissed) {
+      box.innerHTML = `
+        <div class="mn-empty">
+          <div class="mn-empty-icon">⏭️</div>
+          <div class="mn-empty-title">TIDAK ADA MISI AKTIF</div>
+          <div class="mn-empty-sub">Misi yang telat lebih dari 1 jam dianggap tidak dikerjakan. Tunggu misi berikutnya ya.</div>
+        </div>
+      `;
+      return;
+    }
     box.innerHTML = `
       <div class="mn-empty">
         <div class="mn-empty-icon">🎉</div>
@@ -226,6 +252,7 @@ function renderMissionSummary() {
 
 // ---------- DAFTAR MISI (tab Misi) ----------
 function statusPillFor(task, log) {
+  if (isMissedTask(task, log)) return { label: "❌ TIDAK DIKERJAKAN", cls: "st-rejected" };
   if (!log) {
     const ms = timeStrToDateToday(task.time).getTime() - Date.now();
     if (ms > 0) return { label: "🎯 BELUM DIMULAI", cls: "st-wait" };
@@ -258,7 +285,7 @@ function renderMissionList() {
   currentTasks.forEach((task) => {
     const log = currentLogs.find((l) => l.taskId === task.id && l.date === date);
     const pill = statusPillFor(task, log);
-    const canAct = !log || log.status === "rejected";
+    const canAct = (!log || log.status === "rejected") && !isMissedTask(task, log);
 
     const card = document.createElement("div");
     card.className = "task-card";
@@ -296,6 +323,8 @@ function renderAdventureMap() {
     let icon;
     if (log && log.status === "approved") {
       icon = "✅";
+    } else if (isMissedTask(task, log)) {
+      icon = "❌";
     } else if (!foundCurrent) {
       icon = "🔵";
       foundCurrent = true;
@@ -443,7 +472,8 @@ const STATUS_LABEL_EVAL = {
   "selesai": "✅ Selesai tepat waktu",
   "telat": "⏰ Selesai tapi telat",
   "belum-waktunya": "🔒 Belum waktunya",
-  "berisiko": "⚠️ Belum ada bukti"
+  "berisiko": "⚠️ Belum ada bukti",
+  "tidak-dikerjakan": "❌ Tidak dikerjakan"
 };
 
 function renderSaldoEvaluation() {
@@ -451,20 +481,28 @@ function renderSaldoEvaluation() {
   if (!el) return;
   const today = todayStr();
   const allowance = childData.dailyAllowance ?? DEFAULT_ALLOWANCE[childId] ?? 0;
-  const { items, totalDeduction, estimatedTomorrow } = computeLiveEvaluation(currentTasks, currentLogs, today, allowance);
+  const { items, totalDeduction, estimatedTomorrow } = computeLiveEvaluation(currentTasks, currentLogs, today, allowance, currentDeductions);
 
   const rows = items.map((it) => `
     <div class="saldo-eval-row">
       <span>${categoryIcon(it.task.category)} ${it.task.title}</span>
-      <span class="muted-light">${STATUS_LABEL_EVAL[it.status]}${it.deduction > 0 ? ` (-${formatRupiah(it.deduction)})` : ""}</span>
+      <span class="muted-light">${STATUS_LABEL_EVAL[it.status]}</span>
+    </div>
+  `).join("");
+
+  const manualRows = currentDeductions.filter((d) => d.date === today).map((d) => `
+    <div class="saldo-eval-row">
+      <span>✂️ ${d.reason || "Potongan dari orang tua"}</span>
+      <span class="muted-light">-${formatRupiah(d.amount)}</span>
     </div>
   `).join("");
 
   el.innerHTML = `
     <p class="muted-light" style="margin-bottom:8px;">${formatTanggal(today)} — hasil hari ini dihitung final jam 22:00 dan jadi jajan BESOK.</p>
     ${rows || `<p class="muted-light">Belum ada misi hari ini.</p>`}
+    ${manualRows}
     <div class="saldo-eval-total">
-      <span>Perkiraan potongan hari ini</span>
+      <span>Potongan dari orang tua hari ini</span>
       <b>${formatRupiah(totalDeduction)}</b>
     </div>
     <div class="saldo-eval-total">
@@ -506,6 +544,13 @@ function renderSaldoHistoryList(items) {
           </div>
         `).join("")
       : `<p class="muted-light">Tidak ada rincian.</p>`;
+    (h.manualDeductions || []).forEach((d) => {
+      detail.innerHTML += `
+        <div class="saldo-eval-row">
+          <span>✂️ ${d.reason || "Potongan dari orang tua"}</span>
+          <span class="muted-light">-${formatRupiah(d.amount)}</span>
+        </div>`;
+    });
 
     head.addEventListener("click", () => {
       detail.style.display = detail.style.display === "none" ? "block" : "none";
@@ -633,8 +678,8 @@ function setupModal() {
     try {
       const result = await submitTaskPhoto(activeModalTask, childId, pendingPhotoFile);
       closeModal();
-      if (result.saldoDeduction > 0) {
-        alert(`Bukti terkirim, tapi telat ${result.lateMinutes} menit dari jadwal.\nIni akan mengurangi jajan BESOK sebesar ${formatRupiah(result.saldoDeduction)} (dihitung final jam 22:00).`);
+      if (result.lateMinutes > 0) {
+        alert(`Bukti terkirim, tapi telat ${result.lateMinutes} menit dari jadwal. Orang tua yang menentukan apakah ada potongan jajan.`);
       }
     } catch (err) {
       alert("Gagal mengirim bukti: " + err.message);
@@ -644,38 +689,13 @@ function setupModal() {
   });
 }
 
-// Kecilkan foto sebelum dikirim, supaya upload tetap cepat & tidak gagal
-// walau sinyal anak lagi lemah (paket data). Foto kamera HP bisa 5-15MB,
-// setelah dikecilkan biasanya jadi <500KB tanpa terlihat beda di mata.
-async function compressPhoto(file, maxDimension = 1280, quality = 0.7) {
-  try {
-    const bitmap = await createImageBitmap(file);
-    let { width, height } = bitmap;
-    if (width > maxDimension || height > maxDimension) {
-      const scale = maxDimension / Math.max(width, height);
-      width = Math.round(width * scale);
-      height = Math.round(height * scale);
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    canvas.getContext("2d").drawImage(bitmap, 0, 0, width, height);
-    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
-    if (!blob) return file; // gagal compress, pakai file asli sebagai fallback
-    return new File([blob], "bukti.jpg", { type: "image/jpeg" });
-  } catch (e) {
-    // Browser lama / format aneh: kirim file asli saja daripada gagal total
-    return file;
-  }
-}
-
-async function handlePhotoPick(file) {
+function handlePhotoPick(file) {
   if (!file) return;
+  pendingPhotoFile = file;
   const preview = document.getElementById("modalPreview");
-  preview.src = URL.createObjectURL(file); // preview pakai file asli, biar instan
+  preview.src = URL.createObjectURL(file);
   preview.style.display = "block";
   document.getElementById("modalSendBtn").style.display = "block";
-  pendingPhotoFile = await compressPhoto(file);
 }
 
 function openModal(taskId) {
@@ -687,7 +707,7 @@ function openModal(taskId) {
   const date = todayStr();
   const log = currentLogs.find((l) => l.taskId === task.id && l.date === date);
   const pill = statusPillFor(task, log);
-  const canUpload = !log || log.status === "rejected";
+  const canUpload = (!log || log.status === "rejected") && !isMissedTask(task, log);
 
   document.getElementById("modalIcon").textContent = categoryIcon(task.category);
   document.getElementById("modalTitle").textContent = task.title;

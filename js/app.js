@@ -12,18 +12,56 @@ export function formatRupiah(angka) {
 // Jatah default per anak kalau field "dailyAllowance" belum diisi di Firestore.
 export const DEFAULT_ALLOWANCE = { khanaya: 25000, asensio: 20000 };
 
-// Potongan saldo TIDAK lagi dihitung otomatis. Orang tua mengisinya MANUAL
-// lewat dashboard admin (nominal + alasan, per tanggal). Saat "tutup buku",
-// total potongan manual di tanggal itu dikurangkan dari jatah dasar.
+// Potongan uang jajan per misi punya nominal MAKSIMAL yang diisi MANUAL oleh
+// admin per tugas (mis. sholat = Rp2.000). Seberapa besar potongan yang benar-
+// benar kena dihitung OTOMATIS dari keterlambatan:
+//   - Telat kirim bukti -> potong Rp500 tiap kelipatan 5 menit telat,
+//     berhenti bertambah di menit ke-30 — tapi tidak pernah melebihi nominal
+//     potongan tugas itu sendiri (mis. sholat maks Rp2.000, walau rumus
+//     5-menitannya bisa mencapai lebih).
+//   - Telat lebih dari batas waktunya (lihat LATE_LIMIT_MIN di bawah) ->
+//     misi dianggap TIDAK DIKERJAKAN, kena potongan PENUH (nominal yang
+//     diisi admin untuk tugas itu).
+//   - Total potongan semua misi hari itu dikurangkan dari jatah dasar ->
+//     hasilnya jadi saldo BESOK.
 
-// Batas telat: kalau sudah lewat 60 menit dari jam misi dan belum ada bukti,
-// misi dianggap TIDAK DIKERJAKAN dan anak lanjut ke misi berikutnya.
-export const LATE_LIMIT_MIN = 60;
+// Batas telat DEFAULT: kalau sudah lewat 30 menit dari jam misi dan belum
+// ada bukti, misi dianggap TIDAK DIKERJAKAN dan anak lanjut ke misi berikutnya.
+export const LATE_LIMIT_MIN = 30;
 
-// true kalau misi (jam "HH:MM" hari ini) sudah telat >= 1 jam.
-export function isPastLateLimit(timeStr) {
+// Batas telat khusus untuk misi yang memang butuh waktu lebih lama (mis.
+// mandi) — ditandai lewat field task.extendedLateLimit = true di admin.
+export const LATE_LIMIT_MIN_EXTENDED = 60;
+
+// Aturan skala potongan otomatis per keterlambatan (nominalnya sendiri per
+// tugas, lihat computeLateDeduction di bawah).
+export const LATE_DEDUCTION_STEP_MIN = 5;   // tiap kelipatan 5 menit...
+export const LATE_DEDUCTION_PER_STEP = 500; // ...potong Rp500...
+export const LATE_DEDUCTION_CAP_MIN = 30;   // ...berhenti bertambah di menit ke-30.
+
+// Batas telat efektif untuk sebuah misi: 60 menit kalau ditandai
+// extendedLateLimit (mis. mandi), 30 menit untuk misi lainnya.
+export function lateLimitForTask(task) {
+  return task?.extendedLateLimit ? LATE_LIMIT_MIN_EXTENDED : LATE_LIMIT_MIN;
+}
+
+// true kalau misi (jam "HH:MM" hari ini) sudah telat melewati batas waktunya
+// sendiri (30 menit normal, 60 menit kalau extendedLateLimit).
+export function isPastLateLimit(timeStr, task) {
   const target = timeStrToDateToday(timeStr);
-  return Date.now() - target.getTime() >= LATE_LIMIT_MIN * 60000;
+  return Date.now() - target.getTime() >= lateLimitForTask(task) * 60000;
+}
+
+// Hitung potongan otomatis (Rupiah) dari jumlah menit telat: Rp500 tiap
+// kelipatan 5 menit, berhenti bertambah di menit ke-30, dan tidak pernah
+// melebihi nominal potongan yang diisi admin untuk tugas itu (maxDeduction).
+export function computeLateDeduction(lateMinutes, maxDeduction) {
+  const steps = Math.min(
+    Math.floor(Math.max(0, lateMinutes ?? 0) / LATE_DEDUCTION_STEP_MIN),
+    LATE_DEDUCTION_CAP_MIN / LATE_DEDUCTION_STEP_MIN
+  );
+  const raw = steps * LATE_DEDUCTION_PER_STEP;
+  return Math.min(raw, Math.max(0, maxDeduction ?? 0));
 }
 
 // Waktu "tutup buku" evaluasi harian: jam 22:00. Setelah jam ini, tugas hari

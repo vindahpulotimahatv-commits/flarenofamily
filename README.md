@@ -190,7 +190,8 @@ terbentuk saat admin menambah tugas pertama lewat dashboard.
 - **Admin Dashboard** (`admin.html`): tiap kartu anak sekarang punya
   - Field **Kelas** (opsional, tampil di halaman Profil anak)
   - Dropdown untuk mengganti **Status HP** (🟢 aktif / 🟡 terbatas / 🔴 terkunci / ⏳ habis)
-  - Form tambah tugas (nama, **kategori** 🌅🙏🏫📚🏠🌙📱, jam, reward XP) + daftar
+  - Form tambah tugas (nama, **kategori** 🌅🙏🏫📚🏠🌙📱, jam, reward XP,
+    **potongan maks (Rp)**, centang 🛁 opsional untuk batas telat 1 jam) + daftar
     tugas (bisa dinonaktifkan ⏸️ atau dihapus 🗑️)
   - Bagian **Approval Bukti Foto** di bawah: lihat foto yang dikirim anak,
     tinggal klik ✅ Setujui (otomatis nambah XP, level, koin, dan streak) atau
@@ -287,19 +288,34 @@ terbentuk saat admin menambah tugas pertama lewat dashboard.
 
 ---
 
-## BAGIAN F — SALDO UANG JAJAN HARIAN (potongan otomatis)
+## BAGIAN F — SALDO UANG JAJAN HARIAN (potongan otomatis per nominal tugas)
 
 ### 1. Cara kerjanya (MODEL: hasil hari ini nentuin jajan BESOK)
 - **Jatah dasar**: Khanaya Rp25.000/hari, Asensio Rp20.000/hari (default kalau
   field `dailyAllowance` belum diisi). Admin bisa ubah lewat input
   **"Jatah Uang Jajan Harian"** di kartu tiap anak pada `admin.html`.
+- **Nominal potongan per tugas**: saat menambah misi, admin mengisi manual
+  **"Potongan maks (Rp)"** untuk misi itu (mis. misi "Sholat" = Rp2.000). Ini
+  nominal yang kena potong penuh kalau misi itu SAMA SEKALI tidak dikerjakan.
+  Nominal ini bisa diubah kapan saja lewat kotak angka di daftar tugas admin.
+- **Batas telat per misi**: normal 30 menit dari jadwal. Untuk misi yang
+  memang butuh waktu lebih lama (mis. mandi), centang **"🛁 Butuh waktu lebih
+  lama"** saat menambah misi di admin → batasnya jadi 1 jam.
 - **Jam 22:00 = "tutup buku"**: setiap hari jam 22:00, sistem menghitung semua
-  tugas aktif hari itu:
-  - Telat kirim bukti → potong Rp500 tiap kelipatan 5 menit telat, maksimal Rp1.500 (tercapai di menit ke-15).
-  - Sama sekali tidak ada bukti sampai jam 22:00 → potong flat Rp1.500.
-  - Total potongan itu dikurangkan dari **jatah dasar** → hasilnya jadi **saldo
-    BESOK**. Contoh: 2 tugas tidak dikerjakan (2 × Rp1.500 = Rp3.000) →
-    jajan besok Khanaya = Rp25.000 − Rp3.000 = **Rp22.000**.
+  tugas aktif hari itu — potongannya OTOMATIS berdasarkan keterlambatan,
+  tidak ada isian manual per hari:
+  - Telat kirim bukti → potong Rp500 tiap kelipatan 5 menit telat, berhenti
+    bertambah di menit ke-30 — tapi tidak pernah melebihi nominal "Potongan
+    maks" tugas itu. Contoh: misi "Sholat" (potongan maks Rp2.000) telat 15
+    menit → potong Rp1.500; telat 25 menit → potong Rp2.000 (sudah mentok
+    nominal maksnya, walau rumus 5-menitan seharusnya Rp2.500).
+  - Telat melebihi batasnya sendiri (30 menit, atau 60 menit untuk misi 🛁)
+    tanpa bukti sama sekali → dianggap **tidak menyelesaikan tugas**, kena
+    potongan PENUH (nominal "Potongan maks" tugas itu).
+  - Total potongan semua misi hari itu dikurangkan dari **jatah dasar** →
+    hasilnya jadi **saldo BESOK**. Contoh: misi "Sholat" (potongan maks
+    Rp2.000) tidak dikerjakan sama sekali →
+    jajan besok Khanaya = Rp25.000 − Rp2.000 = **Rp23.000**.
   - Potongan HARI INI tidak mengurangi saldo hari ini — saldo hari ini sudah
     "dikunci" sejak tutup buku hari sebelumnya.
 - **Perkiraan real-time**: anak bisa lihat perkiraan potongan hari ini &

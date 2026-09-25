@@ -10,19 +10,19 @@ import { doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/fire
 import {
   formatRupiah, computeLevel, xpProgressInLevel, hpStatusLabel, hpStatusMessage,
   todayStr, categoryIcon, categoryLabel, formatCountdown, timeStrToDateToday,
-  formatTanggal, DEFAULT_ALLOWANCE, isTaskEligibleOnDate, LATE_LIMIT_MIN, isPastLateLimit
+  formatTanggal, DEFAULT_ALLOWANCE, isTaskEligibleOnDate, isPastLateLimit,
+  computeLateDeduction
 } from "./app.js";
 import {
   listenTasksForChild, listenLogsForChild, submitTaskPhoto,
   REWARD_CATALOG, redeemReward, listenRedemptions, ensureSaldoUpToDate,
-  computeLiveEvaluation, listenSaldoHistory, listenManualDeductions
+  computeLiveEvaluation, listenSaldoHistory
 } from "./tasks.js";
 
 let childId = null;
 let childData = {};
 let currentTasks = [];
 let currentLogs = [];
-let currentDeductions = []; // potongan manual dari orang tua
 let prevLogStatus = {}; // taskId -> status sebelumnya, dipakai deteksi "baru disetujui"
 let notified = new Set(); // taskId yang sudah dapat reminder hari ini
 let activeModalTask = null;
@@ -69,11 +69,6 @@ export function startChildDashboard(childId_, userData) {
 
   listenSaldoHistory(childId, (items) => {
     renderSaldoHistoryList(items);
-  });
-
-  listenManualDeductions(childId, (items) => {
-    currentDeductions = items;
-    renderSaldoEvaluation();
   });
 
   renderRewards();
@@ -151,11 +146,12 @@ function renderHpCard() {
   `;
 }
 
-// Misi dianggap TIDAK DIKERJAKAN kalau sudah telat >= 1 jam dan belum ada bukti
-// terkirim/disetujui. Anak langsung lanjut ke misi berikutnya.
+// Misi dianggap TIDAK DIKERJAKAN kalau sudah telat lebih dari batas waktunya
+// sendiri (30 menit normal, 60 menit kalau misi bertanda 🛁) dan belum ada
+// bukti terkirim/disetujui. Anak langsung lanjut ke misi berikutnya.
 function isMissedTask(task, log) {
   if (log && (log.status === "approved" || log.status === "submitted")) return false;
-  return isPastLateLimit(task.time);
+  return isPastLateLimit(task.time, task);
 }
 
 // ---------- MISI SEKARANG (tugas terdekat yang belum selesai) ----------
@@ -181,7 +177,7 @@ function renderMissionNow() {
         <div class="mn-empty">
           <div class="mn-empty-icon">⏭️</div>
           <div class="mn-empty-title">TIDAK ADA MISI AKTIF</div>
-          <div class="mn-empty-sub">Misi yang telat lebih dari 1 jam dianggap tidak dikerjakan. Tunggu misi berikutnya ya.</div>
+          <div class="mn-empty-sub">Misi yang telat melebihi batas waktunya dianggap tidak dikerjakan. Tunggu misi berikutnya ya.</div>
         </div>
       `;
       return;
@@ -481,28 +477,20 @@ function renderSaldoEvaluation() {
   if (!el) return;
   const today = todayStr();
   const allowance = childData.dailyAllowance ?? DEFAULT_ALLOWANCE[childId] ?? 0;
-  const { items, totalDeduction, estimatedTomorrow } = computeLiveEvaluation(currentTasks, currentLogs, today, allowance, currentDeductions);
+  const { items, totalDeduction, estimatedTomorrow } = computeLiveEvaluation(currentTasks, currentLogs, today, allowance);
 
   const rows = items.map((it) => `
     <div class="saldo-eval-row">
       <span>${categoryIcon(it.task.category)} ${it.task.title}</span>
-      <span class="muted-light">${STATUS_LABEL_EVAL[it.status]}</span>
-    </div>
-  `).join("");
-
-  const manualRows = currentDeductions.filter((d) => d.date === today).map((d) => `
-    <div class="saldo-eval-row">
-      <span>✂️ ${d.reason || "Potongan dari orang tua"}</span>
-      <span class="muted-light">-${formatRupiah(d.amount)}</span>
+      <span class="muted-light">${STATUS_LABEL_EVAL[it.status]}${it.deduction > 0 ? ` (-${formatRupiah(it.deduction)})` : ""}</span>
     </div>
   `).join("");
 
   el.innerHTML = `
     <p class="muted-light" style="margin-bottom:8px;">${formatTanggal(today)} — hasil hari ini dihitung final jam 22:00 dan jadi jajan BESOK.</p>
     ${rows || `<p class="muted-light">Belum ada misi hari ini.</p>`}
-    ${manualRows}
     <div class="saldo-eval-total">
-      <span>Potongan dari orang tua hari ini</span>
+      <span>Potongan otomatis hari ini</span>
       <b>${formatRupiah(totalDeduction)}</b>
     </div>
     <div class="saldo-eval-total">
@@ -544,13 +532,6 @@ function renderSaldoHistoryList(items) {
           </div>
         `).join("")
       : `<p class="muted-light">Tidak ada rincian.</p>`;
-    (h.manualDeductions || []).forEach((d) => {
-      detail.innerHTML += `
-        <div class="saldo-eval-row">
-          <span>✂️ ${d.reason || "Potongan dari orang tua"}</span>
-          <span class="muted-light">-${formatRupiah(d.amount)}</span>
-        </div>`;
-    });
 
     head.addEventListener("click", () => {
       detail.style.display = detail.style.display === "none" ? "block" : "none";
@@ -676,10 +657,12 @@ function setupModal() {
     btn.disabled = true;
     btn.textContent = "Mengirim...";
     try {
+      const taskForAlert = activeModalTask;
       const result = await submitTaskPhoto(activeModalTask, childId, pendingPhotoFile);
       closeModal();
       if (result.lateMinutes > 0) {
-        alert(`Bukti terkirim, tapi telat ${result.lateMinutes} menit dari jadwal. Orang tua yang menentukan apakah ada potongan jajan.`);
+        const deduction = computeLateDeduction(result.lateMinutes, taskForAlert?.deductionAmount);
+        alert(`Bukti terkirim, tapi telat ${result.lateMinutes} menit dari jadwal. Ini otomatis memotong jajan besok sekitar ${formatRupiah(deduction)}.`);
       }
     } catch (err) {
       alert("Gagal mengirim bukti: " + err.message);

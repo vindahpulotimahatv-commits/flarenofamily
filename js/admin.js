@@ -10,8 +10,7 @@ import { formatRupiah, computeLevel, hpStatusLabel, todayStr, formatTanggal, CAT
 import {
   createTask, updateTask, deleteTask, listenTasksForChild,
   listenPendingLogs, approveLog, rejectLog, updateChildHpStatus, updateChildField,
-  ensureSaldoUpToDate, listenSaldoHistory,
-  addManualDeduction, deleteManualDeduction, listenManualDeductions
+  ensureSaldoUpToDate, listenSaldoHistory
 } from "./tasks.js";
 
 const REPORT_STATUS_LABEL = {
@@ -76,22 +75,7 @@ export async function loadChildren() {
 
       <label class="hp-label">Jatah Uang Jajan Harian (Rp)</label>
       <input type="number" class="allowance-input" data-child="${childId}" value="${allowance}" min="0" step="500">
-      <p class="muted" style="font-size:12px;margin-top:2px;">Jam 22:00 tiap hari "tutup buku": jajan BESOK = jatah penuh dikurangi total potongan manual hari itu. Tidak ada potongan otomatis — kamu isi sendiri di bawah. Misi telat &gt; 1 jam otomatis dianggap tidak dikerjakan.</p>
-
-      <div class="task-section">
-        <div class="task-section-head"><b>✂️ Potongan Saldo (manual)</b></div>
-        <form class="deduct-form" data-child="${childId}">
-          <div class="task-form-row">
-            <input type="number" name="amount" placeholder="Nominal (Rp)" min="500" step="500" required>
-            <input type="date" name="date" value="${todayStr()}" required>
-          </div>
-          <div class="task-form-row">
-            <input type="text" name="reason" placeholder="Alasan (mis. telat sikat gigi)">
-            <button type="submit">+ Potong</button>
-          </div>
-        </form>
-        <div class="deduct-list" data-child="${childId}"><p class="muted">Memuat potongan...</p></div>
-      </div>
+      <p class="muted" style="font-size:12px;margin-top:2px;">Jam 22:00 tiap hari "tutup buku": jajan BESOK = jatah penuh dikurangi potongan OTOMATIS hari itu (Rp500 tiap 5 menit telat, maks Rp3.000/misi). Misi telat &gt; 30 menit (60 menit untuk misi bertanda 🛁) otomatis dianggap tidak dikerjakan dan kena potongan penuh.</p>
 
       <label class="hp-label">Status HP</label>
       <select class="hp-select" data-child="${childId}">
@@ -113,12 +97,19 @@ export async function loadChildren() {
             <input type="number" name="xpReward" placeholder="XP" min="0" value="10" required>
           </div>
           <div class="task-form-row">
+            <input type="number" name="deductionAmount" placeholder="Potongan maks (Rp)" min="0" step="500" value="1500" required>
+          </div>
+          <label class="task-form-checkbox" style="display:flex;align-items:center;gap:6px;font-size:12px;">
+            <input type="checkbox" name="extendedLateLimit">
+            🛁 Butuh waktu lebih lama (mis. mandi) — batas telat 1 jam, bukan 30 menit
+          </label>
+          <div class="task-form-row">
             <label class="hp-label" style="margin:0;align-self:center;">Mulai tanggal (opsional)</label>
             <input type="date" name="startDate" min="${todayStr()}">
             <button type="submit">+ Tambah</button>
           </div>
         </form>
-        <p class="muted" style="font-size:11px;margin-top:2px;">Kosongkan "Mulai tanggal" kalau mau misi langsung berlaku hari ini/besok secara otomatis. Isi kalau mau tentukan sendiri kapan misi ini mulai berlaku (mis. mulai Senin depan).</p>
+        <p class="muted" style="font-size:11px;margin-top:2px;">Kosongkan "Mulai tanggal" kalau mau misi langsung berlaku hari ini/besok secara otomatis. Isi kalau mau tentukan sendiri kapan misi ini mulai berlaku (mis. mulai Senin depan). "Potongan maks" = nominal yang kena potong kalau misi ini SAMA SEKALI tidak dikerjakan; kalau cuma telat, potongannya otomatis dihitung Rp500 tiap 5 menit (maks di menit ke-30) tanpa pernah melebihi nominal ini.</p>
         <div class="task-list" data-child="${childId}">
           <p class="muted">Memuat tugas...</p>
         </div>
@@ -151,21 +142,6 @@ export async function loadChildren() {
       await updateChildField(childId, "dailyAllowance", val);
     });
 
-    // Potongan manual
-    card.querySelector(".deduct-form").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const f = e.target;
-      try {
-        await addManualDeduction(childId, f.date.value, f.amount.value, f.reason.value);
-        f.amount.value = "";
-        f.reason.value = "";
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-    const deductEl = card.querySelector(".deduct-list");
-    unsubscribers.push(listenManualDeductions(childId, (items) => renderDeductions(deductEl, items)));
-
     // Add task form
     card.querySelector(".add-task-form").addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -175,10 +151,13 @@ export async function loadChildren() {
       const xpReward = form.xpReward.value;
       const category = form.category.value;
       const startDate = form.startDate.value;
+      const extendedLateLimit = form.extendedLateLimit.checked;
+      const deductionAmount = form.deductionAmount.value;
       if (!title || !time) return;
-      await createTask(childId, { title, time, xpReward, category, startDate });
+      await createTask(childId, { title, time, xpReward, category, startDate, extendedLateLimit, deductionAmount });
       form.reset();
       form.xpReward.value = 10;
+      form.deductionAmount.value = 1500;
     });
 
     // Live task list for this child
@@ -205,28 +184,6 @@ export async function loadChildren() {
   }
 }
 
-function renderDeductions(el, items) {
-  if (items.length === 0) {
-    el.innerHTML = `<p class="muted" style="font-size:12px;">Belum ada potongan.</p>`;
-    return;
-  }
-  el.innerHTML = "";
-  items.slice(0, 15).forEach((d) => {
-    const row = document.createElement("div");
-    row.className = "task-row";
-    row.innerHTML = `
-      <span class="task-time">${formatTanggal(d.date)}</span>
-      <span class="task-title">${d.reason || "(tanpa alasan)"}</span>
-      <span class="task-xp">-${formatRupiah(d.amount)}</span>
-      <button class="task-delete" title="Hapus">🗑️</button>
-    `;
-    row.querySelector(".task-delete").addEventListener("click", () => {
-      if (confirm("Hapus potongan ini?")) deleteManualDeduction(d.id);
-    });
-    el.appendChild(row);
-  });
-}
-
 function renderTaskList(listEl, tasks) {
   if (tasks.length === 0) {
     listEl.innerHTML = `<p class="muted">Belum ada tugas. Tambahkan lewat form di atas.</p>`;
@@ -242,9 +199,15 @@ function renderTaskList(listEl, tasks) {
       <span class="task-title">${CATEGORY_META[t.category]?.icon || "🎯"} ${t.title}</span>
       ${startsFuture ? `<span class="muted" style="font-size:11px;">📅 mulai ${formatTanggal(t.firstEligibleDate)}</span>` : ""}
       <span class="task-xp">+${t.xpReward} XP</span>
+      <span class="muted" style="font-size:11px;" title="Batas telat sebelum dianggap tidak dikerjakan">${t.extendedLateLimit ? "🛁 1 jam" : "⏱️ 30 mnt"}</span>
+      <input type="number" class="task-deduction-input" min="0" step="500" value="${t.deductionAmount ?? 0}" title="Potongan maks (Rp) kalau tidak dikerjakan sama sekali" style="width:90px;">
       <button class="task-toggle" title="Aktif/nonaktifkan">${t.active ? "⏸️" : "▶️"}</button>
       <button class="task-delete" title="Hapus">🗑️</button>
     `;
+    row.querySelector(".task-deduction-input").addEventListener("blur", (e) => {
+      const val = Math.max(0, Number(e.target.value) || 0);
+      updateTask(t.id, { deductionAmount: val });
+    });
     row.querySelector(".task-toggle").addEventListener("click", () => {
       updateTask(t.id, { active: !t.active });
     });
@@ -292,9 +255,6 @@ function renderDailyReport(el, history) {
           </div>
         `).join("")
       : `<p class="muted" style="font-size:12px;">Tidak ada rincian tugas untuk hari ini.</p>`;
-    (h.manualDeductions || []).forEach((d) => {
-      detail.innerHTML += `<div class="report-task-row"><span>✂️ ${d.reason || "Potongan manual"}</span><span class="muted-light">-${formatRupiah(d.amount)}</span></div>`;
-    });
     detail.innerHTML += `<p class="muted" style="font-size:12px;margin-top:6px;">Jajan tanggal ${formatTanggal(h.nextDate)}: <b>${formatRupiah(h.saldoForNextDay)}</b></p>`;
 
     summary.addEventListener("click", () => {
@@ -327,7 +287,7 @@ function renderApprovalQueue(logs) {
         <p><b>${log.childId}</b> — tugas: ${log.taskTitle || log.taskId}</p>
         <p class="muted">Tanggal: ${log.date} &nbsp;•&nbsp; +${log.xpReward ?? 0} XP</p>
         ${log.lateMinutes > 0
-          ? `<p class="muted">⏰ Telat ${log.lateMinutes} menit — isi potongan manual di kartu anak kalau perlu.</p>`
+          ? `<p class="muted">⏰ Telat ${log.lateMinutes} menit — potongan otomatis akan dihitung saat tutup buku jam 22:00.</p>`
           : ""}
         <div class="approval-actions">
           <button class="btn-approve">✅ Setujui</button>

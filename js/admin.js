@@ -5,12 +5,12 @@
 // -----------------------------------------------------------
 
 import { db } from "./firebase.js";
-import { collection, doc, getDoc, getDocs } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { formatRupiah, computeLevel, hpStatusLabel, todayStr, formatTanggal, CATEGORY_META, DEFAULT_ALLOWANCE } from "./app.js";
 import {
   createTask, updateTask, deleteTask, listenTasksForChild,
   listenPendingLogs, approveLog, rejectLog, updateChildHpStatus, updateChildField,
-  ensureSaldoUpToDate, listenSaldoHistory
+  ensureSaldoUpToDate, listenSaldoHistory, unlockChildPhone
 } from "./tasks.js";
 
 const REPORT_STATUS_LABEL = {
@@ -82,6 +82,10 @@ export async function loadChildren() {
         ${HP_OPTIONS.map((o) => `<option value="${o}" ${o === (data.hpStatus || "aktif") ? "selected" : ""}>${hpStatusLabel(o)}</option>`).join("")}
       </select>
 
+      <div class="ring-banner" data-child="${childId}" style="display:none;margin-top:8px;padding:10px;border-radius:10px;background:#fee2e2;color:#991b1b;font-weight:700;"></div>
+      <button type="button" class="btn-stop-ring" data-child="${childId}" style="margin-top:8px;width:100%;padding:10px;border:0;border-radius:10px;background:#16a34a;color:#fff;font-weight:700;cursor:pointer;">🔕 Hentikan Dering (izinkan)</button>
+      <p class="muted" style="font-size:11px;margin-top:2px;">Kalau misi sudah lewat jam-nya, HP anak berdering otomatis. Tekan tombol ini untuk mengizinkan dering berhenti.</p>
+
       <div class="task-section">
         <div class="task-section-head">
           <b>📋 Tugas Harian</b>
@@ -129,6 +133,34 @@ export async function loadChildren() {
     // HP status control
     card.querySelector(".hp-select").addEventListener("change", async (e) => {
       await updateChildHpStatus(childId, e.target.value);
+    });
+
+    // Status dering otomatis dari HP anak (real-time)
+    const ringUnsub = onSnapshot(doc(db, "children", childId), (s) => {
+      const d = s.data() || {};
+      const banner = card.querySelector(".ring-banner");
+      if (!banner) return;
+      if (d.lockState === "locked") {
+        banner.style.display = "block";
+        banner.textContent = "🔔 HP berdering otomatis — " + (d.lockReason || "misi terlambat");
+      } else {
+        banner.style.display = "none";
+      }
+    });
+    unsubscribers.push(ringUnsub);
+
+    // Hentikan dering otomatis (izinkan) di HP anak
+    card.querySelector(".btn-stop-ring").addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      if (!confirm("Izinkan dering di HP anak berhenti?")) return;
+      btn.disabled = true;
+      try {
+        await unlockChildPhone(childId);
+        btn.textContent = "✅ Izin terkirim";
+      } catch (err) {
+        alert("Gagal mengirim izin: " + err.message);
+      }
+      setTimeout(() => { btn.disabled = false; btn.textContent = "🔕 Hentikan Dering (izinkan)"; }, 4000);
     });
 
     // Kelas (opsional, hanya untuk ditampilkan di profil anak)

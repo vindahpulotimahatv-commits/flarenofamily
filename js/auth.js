@@ -124,8 +124,8 @@ export function guardPage(requiredRole, onReady) {
       return;
     }
 
-    // Anak login di APK -> aktifkan pemantauan (kunci HP + notifikasi).
-    // Orang tua login di APK -> HP itu jadi HP orang tua (notifikasi kalau HP anak terkunci).
+    // Anak login di APK -> aktifkan pemantauan (dering HP + notifikasi).
+    // Orang tua login di APK -> HP itu jadi HP orang tua (notifikasi kalau HP anak berdering).
     if (isChild) nativeRegisterChild(user, userData.childId);
     if (isAdmin) nativeRegisterAdmin(user);
 

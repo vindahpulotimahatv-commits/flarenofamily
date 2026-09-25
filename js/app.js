@@ -142,7 +142,7 @@ export function xpProgressInLevel(xp) {
 const STATUS_LABEL = {
   aktif: "🟢 HP AKTIF",
   terbatas: "🟡 HP TERBATAS",
-  terkunci: "🔴 HP TERKUNCI",
+  terkunci: "🔔 HP BERDERING",
   habis: "⏳ WAKTU HABIS"
 };
 export function hpStatusLabel(status) {
@@ -152,7 +152,7 @@ export function hpStatusLabel(status) {
 const HP_MESSAGE = {
   aktif: "Semua aman, main sewajarnya ya!",
   terbatas: "Selesaikan misi untuk membuka kembali.",
-  terkunci: "Tugas belum diselesaikan.",
+  terkunci: "Tugas belum diselesaikan — HP berdering terus sampai selesai.",
   habis: "Waktu HP hari ini sudah habis."
 };
 export function hpStatusMessage(status) {

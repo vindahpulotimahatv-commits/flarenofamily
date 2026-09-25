@@ -189,7 +189,7 @@ terbentuk saat admin menambah tugas pertama lewat dashboard.
 ### 2. Apa yang baru
 - **Admin Dashboard** (`admin.html`): tiap kartu anak sekarang punya
   - Field **Kelas** (opsional, tampil di halaman Profil anak)
-  - Dropdown untuk mengganti **Status HP** (🟢 aktif / 🟡 terbatas / 🔴 terkunci / ⏳ habis)
+  - Dropdown untuk mengganti **Status HP** (🟢 aktif / 🟡 terbatas / 🔔 berdering / ⏳ habis)
   - Form tambah tugas (nama, **kategori** 🌅🙏🏫📚🏠🌙📱, jam, reward XP,
     **potongan maks (Rp)**, centang 🛁 opsional untuk batas telat 1 jam) + daftar
     tugas (bisa dinonaktifkan ⏸️ atau dihapus 🗑️)
@@ -361,7 +361,9 @@ dijelaskan di atas.
 ✅ Reward shop + riwayat penukaran
 ✅ Badge otomatis (6 jenis, dihitung dari data yang ada)
 ✅ Kontrol status HP manual oleh admin (aktif/terbatas/terkunci/habis) —
-   ditampilkan apa adanya ke anak, TIDAK benar-benar mengunci HP (itu tugas Android App)
+   ditampilkan apa adanya ke anak, TIDAK otomatis membuat HP berdering di web
+   (itu tugas Android App — HP anak berdering terus lewat aplikasi Android
+   kalau status "terkunci"/"habis" atau ada misi yang sudah lewat jam)
 
 **Belum dibuat (menyusul di Phase 3 — Android App):**
 - Notifikasi push sungguhan walau app ditutup (Firebase Cloud Messaging)

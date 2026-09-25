@@ -406,8 +406,8 @@ export async function updateChildHpStatus(childId, hpStatus) {
   await updateDoc(doc(db, "children", childId), { hpStatus });
 }
 
-// Orang tua menekan "Buka Kunci HP": aplikasi Android di HP anak membaca angka ini,
-// dan kalau berubah berarti kunci otomatis (misi telat 15 menit) boleh dibuka.
+// Orang tua menekan "Hentikan Dering": aplikasi Android di HP anak membaca angka ini,
+// dan kalau berubah berarti dering otomatis (misi sudah lewat jam) boleh dihentikan.
 export function unlockChildPhone(childId) {
   return updateDoc(doc(db, "children", childId), { unlockCounter: increment(1) });
 }

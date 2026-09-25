@@ -35,8 +35,8 @@ jobs:
                   applicationId = "com.flareno.jurnal"
                   minSdk = 24
                   targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0"
+                  versionCode = 2
+                  versionName = "1.1"
               }
 
               signingConfigs {
@@ -80,6 +80,7 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
               <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
               <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+              <uses-permission android:name="android.permission.VIBRATE" />
 
               <application
                   android:allowBackup="false"
@@ -108,18 +109,6 @@ jobs:
                       android:foregroundServiceType="dataSync" />
 
                   <receiver
-                      android:name=".AdminReceiver"
-                      android:exported="true"
-                      android:permission="android.permission.BIND_DEVICE_ADMIN">
-                      <meta-data
-                          android:name="android.app.device_admin"
-                          android:resource="@xml/device_admin" />
-                      <intent-filter>
-                          <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
-                      </intent-filter>
-                  </receiver>
-
-                  <receiver
                       android:name=".BootReceiver"
                       android:exported="true">
                       <intent-filter>
@@ -143,14 +132,6 @@ jobs:
                   </provider>
               </application>
           </manifest>
-          FLARENO_EOF
-          mkdir -p android-app/app/src/main/java/com/flareno/jurnal
-          cat > android-app/app/src/main/java/com/flareno/jurnal/AdminReceiver.kt <<'FLARENO_EOF'
-          package com.flareno.jurnal
-
-          import android.app.admin.DeviceAdminReceiver
-
-          class AdminReceiver : DeviceAdminReceiver()
           FLARENO_EOF
           mkdir -p android-app/app/src/main/java/com/flareno/jurnal
           cat > android-app/app/src/main/java/com/flareno/jurnal/BootReceiver.kt <<'FLARENO_EOF'
@@ -403,8 +384,6 @@ jobs:
           package com.flareno.jurnal
 
           import android.Manifest
-          import android.app.admin.DevicePolicyManager
-          import android.content.ComponentName
           import android.content.Intent
           import android.content.pm.PackageManager
           import android.net.Uri
@@ -583,7 +562,7 @@ jobs:
                   }
               }
 
-              // Minta izin satu per satu: notifikasi -> admin perangkat (untuk kunci layar) -> hemat baterai.
+              // Minta izin satu per satu: notifikasi -> hemat baterai.
               private fun setupStep() {
                   val p = Config.prefs(this)
 
@@ -593,21 +572,6 @@ jobs:
                   ) {
                       p.edit().putBoolean("askedNotif", true).apply()
                       notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                      return
-                  }
-
-                  val dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
-                  val admin = ComponentName(this, AdminReceiver::class.java)
-                  val isChildMode = (p.getString("mode", "child") ?: "child") == "child"
-                  if (isChildMode && !dpm.isAdminActive(admin) && !p.getBoolean("askedAdmin", false)) {
-                      p.edit().putBoolean("askedAdmin", true).apply()
-                      val i = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
-                          .putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin)
-                          .putExtra(
-                              DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                              "Diperlukan agar HP bisa dikunci otomatis saat misi belum selesai."
-                          )
-                      stepLauncher.launch(i)
                       return
                   }
 
@@ -664,22 +628,19 @@ jobs:
           cat > android-app/app/src/main/java/com/flareno/jurnal/MonitorService.kt <<'FLARENO_EOF'
           package com.flareno.jurnal
 
-          import android.app.KeyguardManager
           import android.app.Service
-          import android.app.admin.DevicePolicyManager
-          import android.content.BroadcastReceiver
-          import android.content.ComponentName
           import android.content.Context
           import android.content.Intent
-          import android.content.IntentFilter
           import android.content.SharedPreferences
           import android.content.pm.ServiceInfo
-          import android.os.Handler
+          import android.media.AudioAttributes
+          import android.media.MediaPlayer
+          import android.media.RingtoneManager
+          import android.os.Build
           import android.os.IBinder
-          import android.os.Looper
-          import android.os.PowerManager
+          import android.os.VibrationEffect
+          import android.os.Vibrator
           import androidx.core.app.ServiceCompat
-          import androidx.core.content.ContextCompat
           import java.util.Calendar
 
           class Pending(val id: String, val title: String, val time: String, val diff: Int, val submitted: Boolean)
@@ -689,41 +650,24 @@ jobs:
           // MODE ANAK (cek tiap 30 detik):
           //  - Pengingat 15 menit sebelum jam misi + "Waktunya!" saat jam tiba
           //  - Misi telat: notifikasi tiap 5 menit
-          //  - Telat 15 menit -> HP TERKUNCI otomatis. Terbuka kalau orang tua menekan "Buka Kunci"
-          //    atau foto bukti sudah DISETUJUI orang tua.
-          //  - Mode Kirim Bukti: saat terkunci, aplikasi Flareno tetap boleh dibuka (10 detik setelah
-          //    layar dibuka) supaya anak bisa foto & kirim bukti. Keluar dari Flareno -> terkunci lagi.
-          //  - Status kunci dilaporkan ke Firestore supaya orang tua bisa melihatnya.
+          //  - Begitu lewat jam misi (dan belum ada bukti terkirim) -> HP BERDERING terus-menerus
+          //    (nada alarm + getar) sampai misi dikerjakan/bukti disetujui, atau orang tua
+          //    menekan tombol untuk mengizinkan.
+          //  - Status dering dilaporkan ke Firestore supaya orang tua bisa melihatnya.
           //
           // MODE ORANG TUA:
-          //  - Notifikasi + tombol "Buka Kunci" saat HP anak terkunci otomatis.
+          //  - Notifikasi + tombol saat HP anak berdering otomatis.
           class MonitorService : Service() {
 
               companion object {
-                  const val LOCK_AFTER_MIN = 15
+                  const val RING_AFTER_MIN = 1
                   const val LATE_STEP_MIN = 5
                   const val MAX_LATE_MIN = 120
-                  const val GRACE_MS = 10000L
               }
 
               @Volatile private var running = false
-              @Volatile private var lockActive = false
-              private var userPresentReceiver: BroadcastReceiver? = null
-              private val handler = Handler(Looper.getMainLooper())
-
-              // Tiap 2 detik: kalau HP sedang terkunci-secara-aturan, layar menyala & sudah dibuka,
-              // dan yang tampil BUKAN Flareno -> kunci lagi.
-              private val ticker = object : Runnable {
-                  override fun run() {
-                      if (!running) return
-                      if (lockActive) {
-                          val now = System.currentTimeMillis()
-                          val allowed = Config.appForeground || now < Config.keepUntil || now < Config.graceUntil
-                          if (!allowed) lockIfScreenOpen()
-                      }
-                      handler.postDelayed(this, 2000L)
-                  }
-              }
+              private var ringPlayer: MediaPlayer? = null
+              private var vibrator: Vibrator? = null
 
               override fun onBind(intent: Intent?): IBinder? = null
 
@@ -741,12 +685,8 @@ jobs:
                       this, 1, Notifier.serviceNotification(this),
                       ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
                   )
-                  // Kalau sebelumnya sudah terkunci otomatis (mis. HP restart), langsung aktifkan lagi.
-                  if (Config.prefs(this).getBoolean("autoLocked", false)) lockActive = true
                   if (!running) {
                       running = true
-                      registerUserPresent()
-                      handler.post(ticker)
                       val t = Thread { loop() }
                       t.isDaemon = true
                       t.start()
@@ -756,37 +696,62 @@ jobs:
 
               override fun onDestroy() {
                   running = false
-                  handler.removeCallbacksAndMessages(null)
-                  userPresentReceiver?.let {
-                      try { unregisterReceiver(it) } catch (e: Exception) { }
-                  }
+                  stopRinging()
                   super.onDestroy()
               }
 
-              private fun registerUserPresent() {
-                  val r = object : BroadcastReceiver() {
-                      override fun onReceive(context: Context, intent: Intent) {
-                          // Layar baru dibuka: beri waktu 10 detik untuk membuka Flareno.
-                          if (lockActive) Config.graceUntil = System.currentTimeMillis() + GRACE_MS
-                      }
-                  }
-                  userPresentReceiver = r
-                  ContextCompat.registerReceiver(
-                      this, r, IntentFilter(Intent.ACTION_USER_PRESENT), ContextCompat.RECEIVER_NOT_EXPORTED
-                  )
-              }
-
-              private fun lockIfScreenOpen() {
+              // Menyalakan nada dering (pakai nada alarm bawaan HP) + getar terus-menerus sampai dihentikan.
+              private fun startRinging() {
+                  if (ringPlayer != null) return
                   try {
-                      val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-                      val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-                      if (!pm.isInteractive || km.isKeyguardLocked) return
-                      val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-                      val admin = ComponentName(this, AdminReceiver::class.java)
-                      if (dpm.isAdminActive(admin)) dpm.lockNow()
+                      val uri = RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM)
+                          ?: RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_NOTIFICATION)
+                      if (uri != null) {
+                          val mp = MediaPlayer()
+                          mp.setAudioAttributes(
+                              AudioAttributes.Builder()
+                                  .setUsage(AudioAttributes.USAGE_ALARM)
+                                  .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                  .build()
+                          )
+                          mp.setDataSource(this, uri)
+                          mp.isLooping = true
+                          mp.prepare()
+                          mp.start()
+                          ringPlayer = mp
+                      }
+                  } catch (e: Exception) {
+                      // gagal memutar suara (mis. tidak ada nada alarm), abaikan
+                  }
+                  try {
+                      val vib = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                      vibrator = vib
+                      val pattern = longArrayOf(0, 800, 400)
+                      if (Build.VERSION.SDK_INT >= 26) {
+                          vib?.vibrate(VibrationEffect.createWaveform(pattern, 0))
+                      } else {
+                          @Suppress("DEPRECATION")
+                          vib?.vibrate(pattern, 0)
+                      }
                   } catch (e: Exception) {
                       // abaikan
                   }
+              }
+
+              private fun stopRinging() {
+                  try {
+                      ringPlayer?.stop()
+                      ringPlayer?.release()
+                  } catch (e: Exception) {
+                      // abaikan
+                  }
+                  ringPlayer = null
+                  try {
+                      vibrator?.cancel()
+                  } catch (e: Exception) {
+                      // abaikan
+                  }
+                  vibrator = null
               }
 
               private fun pause(): Boolean {
@@ -809,7 +774,7 @@ jobs:
                           if (state == "locked") {
                               Notifier.adminLockAlert(this, k.id, name, k.str("lockReason") ?: "")
                           } else if (prev == "locked") {
-                              Notifier.alert(this, 40 + (k.id.hashCode() and 0xFFF), "HP " + name + " dibuka 🔓", "Kunci sudah dilepas.")
+                              Notifier.alert(this, 40 + (k.id.hashCode() and 0xFFF), "HP " + name + " berhenti berdering 🔕", "Misinya sudah beres.")
                           }
                           prefs.edit().putString(key, state).apply()
                       }
@@ -842,7 +807,6 @@ jobs:
                           } catch (e: Exception) {
                               // coba lagi 30 detik lagi
                           }
-                          lockActive = false
                           if (!pause()) return
                           continue
                       }
@@ -852,7 +816,7 @@ jobs:
                           val now = System.currentTimeMillis()
                           val today = Config.todayStr()
 
-                          // 1) Data anak: status HP manual + penghitung "buka kunci" dari orang tua
+                          // 1) Data anak: status HP manual + penghitung "izin" dari orang tua
                           val child = fire.getDoc("children", childId)
                           lastOk = now
                           val status = child.str("hpStatus") ?: "aktif"
@@ -916,30 +880,30 @@ jobs:
                               if (st == "approved") continue
                               pending.add(Pending(t.id, t.str("title") ?: "Misi", time, hh * 60 + mm - nowMin, st == "submitted"))
                           }
-                          hot = pending.any { it.diff <= LOCK_AFTER_MIN }
+                          hot = pending.any { it.diff <= RING_AFTER_MIN }
                           val overdueIds = pending.filter { it.diff < 0 }.map { it.id }
 
                           val notified = prefs.getStringSet("notified_" + today, emptySet())!!.toMutableSet()
                           val exempt = prefs.getStringSet("exempt_" + today, emptySet())!!.toMutableSet()
                           var changed = false
 
-                          // 5) Kunci otomatis: buka lagi kalau orang tua mengizinkan / foto sudah disetujui
-                          var autoLocked = prefs.getBoolean("autoLocked", false)
-                          if (autoLocked) {
-                              val baseCounter = prefs.getLong("lockCounter", 0L)
-                              val lockTasks = prefs.getStringSet("lockTasks", emptySet())!!
+                          // 5) Berhenti berdering kalau orang tua mengizinkan / foto sudah disetujui
+                          var ringingActive = prefs.getBoolean("ringingActive", false)
+                          if (ringingActive) {
+                              val baseCounter = prefs.getLong("ringCounter", 0L)
+                              val ringTasks = prefs.getStringSet("ringTasks", emptySet())!!
                               var release = ""
                               if (counter != baseCounter) {
                                   exempt.addAll(overdueIds)
                                   changed = true
                                   release = "Orang tua sudah mengizinkan. Semangat lanjut misinya!"
-                              } else if (lockTasks.none { overdueIds.contains(it) }) {
+                              } else if (ringTasks.none { overdueIds.contains(it) }) {
                                   release = "Misi sudah disetujui orang tua."
                               }
                               if (release.isNotEmpty()) {
-                                  autoLocked = false
-                                  prefs.edit().putBoolean("autoLocked", false).remove("lockTasks").apply()
-                                  Notifier.alert(this, 11, "HP dibuka 🔓", release)
+                                  ringingActive = false
+                                  prefs.edit().putBoolean("ringingActive", false).remove("ringTasks").apply()
+                                  Notifier.alert(this, 11, "Dering berhenti 🔕", release)
                               }
                           }
 
@@ -962,32 +926,28 @@ jobs:
                                   if (notified.add("l_" + p.id + "_" + k)) {
                                       changed = true
                                       val minutes = k * LATE_STEP_MIN
-                                      val text = if (minutes >= LOCK_AFTER_MIN) {
-                                          p.title + " terlambat " + minutes + " menit. HP dikunci, minta izin orang tua untuk membuka."
-                                      } else {
-                                          p.title + " terlambat " + minutes + " menit. Selesaikan sebelum " + LOCK_AFTER_MIN + " menit atau HP akan terkunci!"
-                                      }
+                                      val text = p.title + " terlambat " + minutes + " menit. HP berdering terus sampai misi diselesaikan atau bukti dikirim."
                                       Notifier.alert(this, nid, "Misi terlambat ⚠️", text)
                                   }
                               }
                           }
 
-                          // 7) Mulai kunci otomatis kalau ada misi telat >= 15 menit (dan belum ada bukti terkirim)
-                          if (!autoLocked) {
+                          // 7) Mulai berdering begitu ada misi yang lewat jam misi (dan belum ada bukti terkirim)
+                          if (!ringingActive) {
                               val starters = pending.filter {
-                                  !it.submitted && -it.diff >= LOCK_AFTER_MIN && -it.diff <= MAX_LATE_MIN && !exempt.contains(it.id)
+                                  !it.submitted && -it.diff >= RING_AFTER_MIN && -it.diff <= MAX_LATE_MIN && !exempt.contains(it.id)
                               }
                               if (starters.isNotEmpty()) {
-                                  autoLocked = true
-                                  val reason = starters[0].title + " terlambat " + LOCK_AFTER_MIN + " menit"
+                                  ringingActive = true
+                                  val reason = starters[0].title + " sudah lewat jam misi"
                                   prefs.edit()
-                                      .putBoolean("autoLocked", true)
-                                      .putLong("lockCounter", counter)
-                                      .putStringSet("lockTasks", starters.map { it.id }.toSet())
-                                      .putString("lockReason", reason)
-                                      .putLong("lockSince", now)
+                                      .putBoolean("ringingActive", true)
+                                      .putLong("ringCounter", counter)
+                                      .putStringSet("ringTasks", starters.map { it.id }.toSet())
+                                      .putString("ringReason", reason)
+                                      .putLong("ringSince", now)
                                       .apply()
-                                  Notifier.alert(this, 11, "HP dikunci 🔒", reason + ". Kirim bukti lewat Flareno atau minta izin orang tua.")
+                                  Notifier.alert(this, 11, "HP berdering 🔔", reason + ". Selesaikan misi atau kirim bukti untuk menghentikan dering.")
                               }
                           }
 
@@ -1003,16 +963,17 @@ jobs:
                               ed.apply()
                           }
 
-                          lockActive = manualLock || autoLocked
+                          val shouldRing = manualLock || ringingActive
+                          if (shouldRing) startRinging() else stopRinging()
 
-                          // 8) Laporkan status kunci ke Firestore (untuk dashboard & notifikasi orang tua)
+                          // 8) Laporkan status dering ke Firestore (untuk dashboard & notifikasi orang tua)
                           try {
-                              val desired = if (autoLocked) "locked" else "open"
+                              val desired = if (ringingActive) "locked" else "open"
                               if (desired != (prefs.getString("pubState", "open") ?: "open")) {
                                   fire.setLockInfo(
-                                      childId, autoLocked,
-                                      if (autoLocked) (prefs.getString("lockReason", "") ?: "") else "",
-                                      prefs.getLong("lockSince", now)
+                                      childId, ringingActive,
+                                      if (ringingActive) (prefs.getString("ringReason", "") ?: "") else "",
+                                      prefs.getLong("ringSince", now)
                                   )
                                   prefs.edit().putString("pubState", desired).apply()
                               }
@@ -1022,8 +983,8 @@ jobs:
                       } catch (e: InterruptedException) {
                           return
                       } catch (e: Exception) {
-                          // Gagal (mis. tidak ada internet). Kunci tetap aktif; kalau offline > 1 jam, dilepas sementara.
-                          if (System.currentTimeMillis() - lastOk > 3600000L) lockActive = false
+                          // Gagal (mis. tidak ada internet). Dering tetap aktif; kalau offline > 1 jam, dihentikan sementara.
+                          if (System.currentTimeMillis() - lastOk > 3600000L) stopRinging()
                       }
                       if (!pause()) return
                   }
@@ -1091,7 +1052,7 @@ jobs:
                       // izin notifikasi belum diberikan
                   }
               }
-              // Notifikasi untuk orang tua: HP anak terkunci, dengan tombol "Buka Kunci".
+              // Notifikasi untuk orang tua: HP anak berdering terus, dengan tombol untuk mengizinkan/menghentikan.
               fun adminLockAlert(c: Context, childId: String, name: String, reason: String) {
                   try {
                       val nid = 30 + (childId.hashCode() and 0xFFFF)
@@ -1100,16 +1061,16 @@ jobs:
                           Intent(c, UnlockReceiver::class.java).putExtra("childId", childId).putExtra("nid", nid),
                           PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                       )
-                      val text = if (reason.isEmpty()) "HP " + name + " terkunci." else "HP " + name + " terkunci: " + reason
+                      val text = if (reason.isEmpty()) "HP " + name + " berdering terus." else "HP " + name + " berdering terus: " + reason
                       val n = NotificationCompat.Builder(c, CH_ALERT)
                           .setSmallIcon(R.drawable.ic_stat)
-                          .setContentTitle("HP " + name + " terkunci 🔒")
+                          .setContentTitle("HP " + name + " berdering 🔔")
                           .setContentText(text)
                           .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                           .setAutoCancel(true)
                           .setPriority(NotificationCompat.PRIORITY_HIGH)
                           .setContentIntent(openAppIntent(c))
-                          .addAction(0, "🔓 Buka Kunci", unlock)
+                          .addAction(0, "🔕 Hentikan Dering", unlock)
                           .build()
                       NotificationManagerCompat.from(c).notify(nid, n)
                   } catch (e: SecurityException) {
@@ -1127,7 +1088,7 @@ jobs:
           import android.content.Intent
           import androidx.core.app.NotificationManagerCompat
 
-          // Dipanggil saat orang tua menekan tombol "Buka Kunci" di notifikasi.
+          // Dipanggil saat orang tua menekan tombol "Hentikan Dering" di notifikasi.
           class UnlockReceiver : BroadcastReceiver() {
               override fun onReceive(context: Context, intent: Intent) {
                   val childId = intent.getStringExtra("childId") ?: return
@@ -1138,7 +1099,7 @@ jobs:
                       try {
                           Fire(app).incrementUnlock(childId)
                           NotificationManagerCompat.from(app).cancel(nid)
-                          Notifier.alert(app, 12, "Izin terkirim 🔓", "HP akan terbuka dalam sekitar 30 detik.")
+                          Notifier.alert(app, 12, "Izin terkirim 🔕", "Dering akan berhenti dalam sekitar 30 detik.")
                       } catch (e: Exception) {
                           Notifier.alert(app, 12, "Gagal mengirim izin", "Coba lagi dari dashboard.")
                       } finally {
@@ -1170,15 +1131,6 @@ jobs:
                   <item name="android:windowBackground">#FFFFFF</item>
               </style>
           </resources>
-          FLARENO_EOF
-          mkdir -p android-app/app/src/main/res/xml
-          cat > android-app/app/src/main/res/xml/device_admin.xml <<'FLARENO_EOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <device-admin xmlns:android="http://schemas.android.com/apk/res/android">
-              <uses-policies>
-                  <force-lock />
-              </uses-policies>
-          </device-admin>
           FLARENO_EOF
           mkdir -p android-app/app/src/main/res/xml
           cat > android-app/app/src/main/res/xml/file_paths.xml <<'FLARENO_EOF'
